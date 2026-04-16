@@ -31,7 +31,7 @@ def merge():
             how='left'
         )
 
-        for column in table_res.columns[10:]:
+        for column in table_res.columns[8:]:
             col = table_res[column].astype("string")
             parts = col.str.split()
             values = parts.str[0]
@@ -57,8 +57,8 @@ def clean(table: pd.DataFrame):
     cols = table.columns[3:]
     table[cols] = (
         table[cols]
-        .fillna(0.0)
         .astype("object")
+        .fillna(0.0)
         .apply(lambda col: pd.to_numeric(
             col.map(lambda x: x.replace(",", ".") if isinstance(x, str) else x),
             errors="coerce"
@@ -183,6 +183,11 @@ if __name__ == "__main__":
     ]
     for pair in pairs:
         table = pair["table"]
+        OUTPUT = OUTPUT / "merged"
+        save(table, pair["name"])
+        OUTPUT = OUTPUT.parent
         clean(table)
         eda(table, pair["name"])
         save(table, pair["name"])
+    train_temp = train.drop(columns=["Delta Kin. Viscosity KV100 - relative | - Daimler Oxidation Test (DOT), %", "Oxidation EOT | DIN 51453 Daimler Oxidation Test (DOT), A/cm"])
+    eda(pd.concat([train_temp, test], ignore_index=True), "mutual")

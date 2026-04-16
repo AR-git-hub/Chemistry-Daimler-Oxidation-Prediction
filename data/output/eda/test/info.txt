@@ -1,0 +1,53 @@
+<class 'pandas.DataFrame'>
+RangeIndex: 524 entries, 0 to 523
+Data columns (total 46 columns):
+ #   Column                                                              Non-Null Count  Dtype  
+---  ------                                                              --------------  -----  
+ 0   scenario_id                                                         524 non-null    str    
+ 1   Компонент                                                           524 non-null    str    
+ 2   Наименование партии                                                 524 non-null    str    
+ 3   Массовая доля, %                                                    524 non-null    float64
+ 4   Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C  524 non-null    int64  
+ 5   Время испытания | - Daimler Oxidation Test (DOT), ч                 524 non-null    int64  
+ 6   Количество биотоплива | - Daimler Oxidation Test (DOT), % масс      524 non-null    int64  
+ 7   Дозировка катализатора, категория                                   524 non-null    int64  
+ 8   Деаэрация | ASTM D3427                                              524 non-null    float64
+ 9   Деэм.вода | ASTM D1401                                              524 non-null    float64
+ 10  Деэм.время | ASTM D1401                                             524 non-null    float64
+ 11  Деэм.масло | ASTM D1401                                             524 non-null    float64
+ 12  Деэм.эмульсия | ASTM D1401                                          524 non-null    float64
+ 13  Динамическая вязкость CCS -15°C, ASTM D5293                         524 non-null    float64
+ 14  Динамическая вязкость CCS -20°C, ASTM D5293                         524 non-null    float64
+ 15  Динамическая вязкость CCS -25°C, ASTM D5293                         524 non-null    float64
+ 16  Динамическая вязкость CCS -30°C, ASTM D5293                         524 non-null    float64
+ 17  Динамическая вязкость CCS -35°C, ASTM D5293                         524 non-null    float64
+ 18  Индекс вязкости, ГОСТ 25371                                         524 non-null    float64
+ 19  Испаряемость по NOACK, ASTM D5800                                   524 non-null    float64
+ 20  Кинематическая вязкость, при -30⁰С | ASTM D445                      524 non-null    float64
+ 21  Кинематическая вязкость, при 100°C, ASTM D445                       524 non-null    float64
+ 22  Кинематическая вязкость, при 40°C, ASTM D445                        524 non-null    float64
+ 23  Кислотное число, ГОСТ 11362                                         524 non-null    float64
+ 24  Массовая доля кальция | ASTM D6481                                  524 non-null    float64
+ 25  Массовая доля кальция, ASTM D6481                                   524 non-null    float64
+ 26  Массовая доля серы | ASTM D6481                                     524 non-null    float64
+ 27  Массовая доля серы, ASTM D6481                                      524 non-null    float64
+ 28  Массовая доля сульфатной золы, ГОСТ 12417                           524 non-null    float64
+ 29  Массовая доля фосфора | ASTM D6481                                  524 non-null    float64
+ 30  Массовая доля фосфора, ASTM D6481                                   524 non-null    float64
+ 31  Массовая доля цинка | ASTM D6481                                    524 non-null    float64
+ 32  Массовая доля цинка, ASTM D6481                                     524 non-null    float64
+ 33  Общее содержание азота | ASTM D3228                                 524 non-null    float64
+ 34  Определение содержания воды методом Карла Фишера | ASTM D 6304      524 non-null    float64
+ 35  Плотность при 15°С, ASTM D4052                                      524 non-null    float64
+ 36  Плотность при 20°С, ASTM D4052                                      524 non-null    float64
+ 37  Последовательность 1 | ASTM D892                                    524 non-null    float64
+ 38  Последовательность 2 | ASTM D892                                    524 non-null    float64
+ 39  Последовательность 3 | ASTM D892                                    524 non-null    float64
+ 40  Температура застывания, ГОСТ 20287, метод Б                         524 non-null    float64
+ 41  Температура проведения теста | -                                    524 non-null    float64
+ 42  Цвет | ASTM D1500                                                   524 non-null    float64
+ 43  Цвет Сейболт | -                                                    524 non-null    float64
+ 44  Щелочное число, ASTM D2896                                          524 non-null    float64
+ 45  Щелочное число, ГОСТ 11362                                          524 non-null    float64
+dtypes: float64(39), int64(4), str(3)
+memory usage: 188.4 KB
