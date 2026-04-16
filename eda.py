@@ -13,23 +13,39 @@ def merge():
 
     def helper(table: pd.DataFrame):
         nonlocal props
-        props["value"] = (
-                props["Значение показателя"].astype(str) +
-                pd.Series([' '] * props.shape[0]) +
-                props["Единица измерения_по_партиям"].astype(str)
-        )
-        pivot = props.pivot_table(
+        import pandas as pd
+        # print(len(props["Наименование показателя"].unique()) + len(table.columns))
+
+        props['Значение показателя'] = props['Значение показателя'].fillna('')
+        props['Единица измерения_по_партиям'] = props['Единица измерения_по_партиям'].fillna('')
+
+        props['val_unit'] = (props['Значение показателя'].astype(str) + ' ' +
+                           props['Единица измерения_по_партиям'].astype(str)).str.strip()
+
+        # 2. Трансформируем длинную таблицу в широкую
+        # pivot_table безопаснее обычного pivot: если встретятся дубликаты, возьмётся первое значение
+        df1_wide = props.pivot_table(
             index=['Компонент', 'Наименование партии'],
             columns='Наименование показателя',
-            values='value',
+            values='val_unit',
             aggfunc='first'
+        ).reset_index()
+
+        # Убираем MultiIndex у колонок, который создаёт pivot
+        df1_wide.columns.name = None
+
+        # 3. Присоединяем новые колонки ко второй таблице
+        table_res = pd.merge(
+            table,
+            df1_wide,
+            on=['Компонент', 'Наименование партии'],
+            how='left'  # сохраняем все строки из table
         )
-        table_res = table.merge(
-            pivot,
-            left_on=['Компонент', 'Наименование партии'],
-            right_index=True,
-            how='left'
-        )
+
+        # (Опционально) Переупорядочиваем колонки: сначала исходные из table, потом новые
+        original_cols = list(table.columns)
+        new_cols = [c for c in df1_wide.columns if c not in original_cols]
+        table_res = table_res[original_cols + new_cols]
 
         for column in table_res.columns[8:]:
             col = table_res[column].astype("string")
@@ -55,6 +71,7 @@ def merge():
 
 def clean(table: pd.DataFrame):
     cols = table.columns[3:]
+    table["Наименование партии"] = table["Наименование партии"].fillna("")
     table[cols] = (
         table[cols]
         .astype("object")

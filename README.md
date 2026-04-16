@@ -1,5 +1,6 @@
 # Chemistry-Daimler-Oxidation-Prediction
 ## ветка `features/eda`
+### Обработанный датасет: `data/output/train/train_full.csv` и `data/output/train/test_full.csv`
 - файл `eda.py`: здесь сосредоточены функции слияния таблиц, очистки данных, разведочного анализа данных. Все результаты сохраняются в data/output
 - `data/output/train` - таблицы с тренировочной выборкой новой структуры. Таблицы `train_full.csv` содержит все необходимые данные, остальные - лишь часть
 - `data/output/test` - аналогично `data/output/train`
