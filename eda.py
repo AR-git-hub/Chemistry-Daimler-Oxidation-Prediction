@@ -114,7 +114,7 @@ def correlation_table_to_csv(table: pd.DataFrame, output_path):
 
 def eda(table: pd.DataFrame, name: str):
 
-    report_dir = OUTPUT / "eda_graphs" / name
+    report_dir = OUTPUT / "eda" / name
     report_dir.mkdir(parents=True, exist_ok=True)
 
     def write_txt(filename: str, content: str):
