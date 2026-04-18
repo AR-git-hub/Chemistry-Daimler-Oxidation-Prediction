@@ -13,7 +13,7 @@ import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
-from sklearn.model_selection import GroupKFold
+from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
@@ -163,6 +163,7 @@ def _train_fold(
     weight_decay: float,
     use_cosine_scheduler: bool,
     ema_decay: float,
+    grad_clip_norm: float,
     device: torch.device,
 ) -> Tuple[DeepSetsRegressor, Dict[str, float]]:
     """Train a single-output head (``output_dim`` is 1 for per-target models)."""
@@ -186,8 +187,11 @@ def _train_fold(
     best_val = float("inf")
     patience = 20
     stale = 0
+    best_epoch = 0
+    epochs_run = 0
 
-    for _ in range(epochs):
+    for epoch_idx in range(epochs):
+        epochs_run = epoch_idx + 1
         model.train()
         for xb, mask, ctx, yb in train_loader:
             xb = xb.to(device)
@@ -202,6 +206,8 @@ def _train_fold(
             pred = model(xb, mask, ctx)
             loss = criterion(pred, yb)
             loss.backward()
+            if grad_clip_norm > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
             optimizer.step()
             if ema is not None:
                 ema.update(model)
@@ -218,6 +224,7 @@ def _train_fold(
         val_loss = val_metrics["mse"]
         if val_loss < best_val:
             best_val = val_loss
+            best_epoch = epochs_run
             if ema is not None:
                 best_state = {}
                 for k, v in model.state_dict().items():
@@ -235,12 +242,122 @@ def _train_fold(
     if best_state is not None:
         model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
     final_metrics = _evaluate(model, val_loader, device)
+    train_at_best = _evaluate(model, train_loader, device)
     metrics: Dict[str, float] = {
         "val_mse_normalized": final_metrics["mse"],
         "val_mae_normalized": final_metrics["mae"],
+        "train_mse_normalized": train_at_best["mse"],
+        "train_mae_normalized": train_at_best["mae"],
+        "best_epoch": float(best_epoch),
+        "epochs_run": float(epochs_run),
         "target_column": target_column,
     }
     return model, metrics
+
+
+def _final_epochs_from_holdout_probe(
+    args: argparse.Namespace,
+    target_idx: int,
+    scaled_components: List[np.ndarray],
+    scaled_context: np.ndarray,
+    y_one: np.ndarray,
+    scenario_ids: List[str],
+    *,
+    input_dim: int,
+    context_dim: int,
+    target_column: str,
+    device: torch.device,
+) -> Tuple[int | None, Dict[str, float]]:
+    """Train on a scenario holdout split to estimate a reasonable full-data epoch budget (reduces blind over-training)."""
+    sid = np.array(scenario_ids)
+    n_sc = len(sid)
+    frac = float(args.final_holdout_fraction)
+    if frac <= 0.0 or n_sc < int(args.final_holdout_min_scenarios):
+        return None, {}
+    gss = GroupShuffleSplit(
+        n_splits=1,
+        test_size=frac,
+        random_state=int(args.seed) + 1000 + int(target_idx),
+    )
+    try:
+        tr_i, ho_i = next(gss.split(np.arange(n_sc, dtype=np.int64), groups=sid))
+    except ValueError:
+        return None, {}
+    tr_i = np.asarray(tr_i, dtype=np.int64)
+    ho_i = np.asarray(ho_i, dtype=np.int64)
+    if len(ho_i) < int(args.final_holdout_min_val_scenarios) or len(tr_i) < int(args.final_holdout_min_train_scenarios):
+        return None, {}
+    train_ds_h = ScenarioSetDataset(
+        [scaled_components[int(i)] for i in tr_i],
+        scaled_context[tr_i],
+        y_one[tr_i],
+    )
+    val_ds_h = ScenarioSetDataset(
+        [scaled_components[int(i)] for i in ho_i],
+        scaled_context[ho_i],
+        y_one[ho_i],
+    )
+    probe_epochs = min(int(args.epochs), int(args.final_probe_max_epochs))
+    _, probe_m = _train_fold(
+        train_dataset=train_ds_h,
+        val_dataset=val_ds_h,
+        input_dim=input_dim,
+        context_dim=context_dim,
+        output_dim=1,
+        target_column=target_column,
+        hidden_dim=args.hidden_dim,
+        dropout=args.dropout,
+        use_heterogeneity=args.use_heterogeneity,
+        epochs=probe_epochs,
+        batch_size=args.batch_size,
+        lr=args.learning_rate,
+        input_noise_std=args.input_noise_std,
+        loss_type=args.loss_type,
+        hybrid_mse_weight=args.hybrid_mse_weight,
+        optimizer_name=args.optimizer,
+        weight_decay=args.weight_decay,
+        use_cosine_scheduler=args.cosine_scheduler,
+        ema_decay=args.ema_decay,
+        grad_clip_norm=args.grad_clip_norm,
+        device=device,
+    )
+    ho_best = int(probe_m["best_epoch"])
+    slack = max(
+        int(args.final_holdout_slack_min),
+        int(np.ceil(float(args.final_holdout_slack_frac) * max(ho_best, 1))),
+    )
+    n_ho = min(int(args.final_epochs), ho_best + slack)
+    n_ho = max(int(args.final_epochs_min), n_ho)
+    extra = {
+        "probe_best_epoch": float(ho_best),
+        "probe_epochs_run": probe_m["epochs_run"],
+        "probe_val_mse": probe_m["val_mse_normalized"],
+        "probe_train_mse": probe_m["train_mse_normalized"],
+    }
+    return n_ho, extra
+
+
+def _effective_final_epochs_for_target(
+    fold_metrics: List[Dict[str, float]],
+    target_idx: int,
+    cap_epochs: int,
+    *,
+    from_cv: bool,
+    min_epochs: int,
+    margin_frac: float,
+    margin_min: int,
+) -> int:
+    """Cap full-data training so it does not far exceed typical CV early-stop depth (reduces train memorization)."""
+    if not from_cv or not fold_metrics:
+        return cap_epochs
+    key = f"best_epoch_t{target_idx}"
+    if key not in fold_metrics[0]:
+        return cap_epochs
+    bests = [float(m[key]) for m in fold_metrics]
+    median_be = int(np.round(np.median(bests)))
+    slack = max(margin_min, int(np.ceil(margin_frac * max(median_be, 1))))
+    eff = min(cap_epochs, median_be + slack)
+    return max(min_epochs, eff)
 
 
 def _assert_group_split_no_leakage(groups: np.ndarray, train_idx: np.ndarray, val_idx: np.ndarray) -> None:
@@ -361,6 +478,7 @@ def train(args: argparse.Namespace) -> None:
                 weight_decay=args.weight_decay,
                 use_cosine_scheduler=args.cosine_scheduler,
                 ema_decay=args.ema_decay,
+                grad_clip_norm=args.grad_clip_norm,
                 device=torch.device(args.device),
             )
             safe_name = f"model_t{ti}.pt"
@@ -385,8 +503,14 @@ def train(args: argparse.Namespace) -> None:
             "fold": fold_idx,
             "val_mse_normalized": float(np.mean([m["val_mse_normalized"] for m in per_target_metrics])),
             "val_mae_normalized": float(np.mean([m["val_mae_normalized"] for m in per_target_metrics])),
+            "train_mse_normalized": float(np.mean([m["train_mse_normalized"] for m in per_target_metrics])),
+            "train_mae_normalized": float(np.mean([m["train_mae_normalized"] for m in per_target_metrics])),
             **{f"val_mse_normalized_t{ti}": m["val_mse_normalized"] for ti, m in enumerate(per_target_metrics)},
             **{f"val_mae_normalized_t{ti}": m["val_mae_normalized"] for ti, m in enumerate(per_target_metrics)},
+            **{f"train_mse_normalized_t{ti}": m["train_mse_normalized"] for ti, m in enumerate(per_target_metrics)},
+            **{f"train_mae_normalized_t{ti}": m["train_mae_normalized"] for ti, m in enumerate(per_target_metrics)},
+            **{f"best_epoch_t{ti}": int(m["best_epoch"]) for ti, m in enumerate(per_target_metrics)},
+            **{f"epochs_run_t{ti}": int(m["epochs_run"]) for ti, m in enumerate(per_target_metrics)},
         }
         fold_metrics.append(fold_metric)
 
@@ -434,7 +558,9 @@ def train(args: argparse.Namespace) -> None:
         full_feat_cols = [_ref_full.feature_columns, _ref_full.feature_columns]
 
     model_path_by_target: Dict[int, str] = {}
-    per_target_full_configs: list[Dict[str, object]] = []
+    per_target_full_configs: Dict[int, Dict[str, object]] = {}
+    final_epochs_effective: Dict[int, int] = {}
+    final_holdout_meta: Dict[int, Dict[str, float]] = {}
 
     for ti in range(len(TARGET_COLUMNS)):
         grouped_train_t = frame_to_scenario_sets(
@@ -473,8 +599,36 @@ def train(args: argparse.Namespace) -> None:
         ema_f: _EmaTracker | None = (
             _EmaTracker(args.ema_decay) if 0.0 < args.ema_decay < 1.0 else None
         )
+        n_cap = _effective_final_epochs_for_target(
+            fold_metrics,
+            ti,
+            args.final_epochs,
+            from_cv=bool(args.final_epochs_from_cv),
+            min_epochs=int(args.final_epochs_min),
+            margin_frac=float(args.final_epochs_cv_margin_frac),
+            margin_min=int(args.final_epochs_cv_margin_min),
+        )
+        n_ho, ho_extra = _final_epochs_from_holdout_probe(
+            args,
+            ti,
+            scaled_components,
+            scaled_context,
+            y_one,
+            grouped_train_t.scenario_ids,
+            input_dim=len(grouped_train_t.feature_columns),
+            context_dim=len(grouped_train_t.context_columns),
+            target_column=TARGET_COLUMNS[ti],
+            device=torch.device(args.device),
+        )
+        if n_ho is not None:
+            n_final = int(min(n_cap, n_ho))
+            n_final = max(int(args.final_epochs_min), n_final)
+            final_holdout_meta[ti] = ho_extra
+        else:
+            n_final = int(n_cap)
+        final_epochs_effective[ti] = n_final
         final_model.train()
-        for _ in range(args.final_epochs):
+        for _ in range(n_final):
             for xb, mask, ctx, yb in full_loader:
                 xb = xb.to(args.device)
                 mask = mask.to(args.device)
@@ -487,6 +641,8 @@ def train(args: argparse.Namespace) -> None:
                 pred = final_model(xb, mask, ctx)
                 loss = criterion(pred, yb)
                 loss.backward()
+                if args.grad_clip_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(final_model.parameters(), args.grad_clip_norm)
                 final_optimizer.step()
                 if ema_f is not None:
                     ema_f.update(final_model)
@@ -504,19 +660,17 @@ def train(args: argparse.Namespace) -> None:
         else:
             torch.save(final_model.state_dict(), mp)
         model_path_by_target[ti] = str(mp.resolve())
-        per_target_full_configs.append(
-            {
-                "feature_columns": grouped_train_t.feature_columns,
-                "interaction_feature_columns": grouped_train_t.interaction_feature_columns,
-                "context_columns": grouped_train_t.context_columns,
-                "x_mean": scaler_stats["mean"].tolist(),
-                "x_std": scaler_stats["std"].tolist(),
-                "ctx_mean": context_scaler["mean"].tolist(),
-                "ctx_std": context_scaler["std"].tolist(),
-                "input_dim": len(grouped_train_t.feature_columns),
-                "context_dim": len(grouped_train_t.context_columns),
-            }
-        )
+        per_target_full_configs[ti] = {
+            "feature_columns": grouped_train_t.feature_columns,
+            "interaction_feature_columns": grouped_train_t.interaction_feature_columns,
+            "context_columns": grouped_train_t.context_columns,
+            "x_mean": scaler_stats["mean"].tolist(),
+            "x_std": scaler_stats["std"].tolist(),
+            "ctx_mean": context_scaler["mean"].tolist(),
+            "ctx_std": context_scaler["std"].tolist(),
+            "input_dim": len(grouped_train_t.feature_columns),
+            "context_dim": len(grouped_train_t.context_columns),
+        }
 
     metadata = {
         "target_columns": TARGET_COLUMNS,
@@ -532,6 +686,16 @@ def train(args: argparse.Namespace) -> None:
         "weight_decay": float(args.weight_decay),
         "cosine_scheduler": bool(args.cosine_scheduler),
         "ema_decay": float(args.ema_decay),
+        "grad_clip_norm": float(args.grad_clip_norm),
+        "final_epochs_from_cv": bool(args.final_epochs_from_cv),
+        "final_epochs_cap": int(args.final_epochs),
+        "final_holdout_fraction": float(args.final_holdout_fraction),
+        **{f"final_epochs_effective_t{ti}": int(final_epochs_effective[ti]) for ti in range(len(TARGET_COLUMNS))},
+        **{
+            f"final_holdout_{k}_t{ti}": float(v)
+            for ti, d in final_holdout_meta.items()
+            for k, v in d.items()
+        },
         "validation_metrics": fold_metrics,
         "cv_mean_mse_normalized": float(np.mean([m["val_mse_normalized"] for m in fold_metrics])),
         "cv_mean_mae_normalized": float(np.mean([m["val_mae_normalized"] for m in fold_metrics])),
@@ -540,7 +704,8 @@ def train(args: argparse.Namespace) -> None:
         "fold_count": len(fold_metrics),
         **{f"model_path_t{ti}": model_path_by_target[ti] for ti in range(len(TARGET_COLUMNS))},
     }
-    for ti, cfg in enumerate(per_target_full_configs):
+    for ti in range(len(TARGET_COLUMNS)):
+        cfg = per_target_full_configs[ti]
         metadata[f"feature_columns_t{ti}"] = cfg["feature_columns"]
         metadata[f"interaction_feature_columns_t{ti}"] = cfg["interaction_feature_columns"]
         metadata[f"context_columns_t{ti}"] = cfg["context_columns"]
@@ -573,14 +738,76 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--artifacts-dir", type=Path, default=ARTIFACTS_DIR)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=200)
-    parser.add_argument("--final-epochs", type=int, default=140)
+    parser.add_argument(
+        "--final-epochs",
+        type=int,
+        default=140,
+        help="Upper bound on full-data retrain epochs; by default capped from CV best-epoch median (see --final-epochs-from-cv).",
+    )
+    parser.add_argument(
+        "--final-epochs-from-cv",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="After CV, limit full-data training epochs using median best_epoch per target + margin (reduces memorization on full train).",
+    )
+    parser.add_argument(
+        "--final-epochs-min",
+        type=int,
+        default=32,
+        help="Floor for effective full-data epochs when capping from CV.",
+    )
+    parser.add_argument(
+        "--final-epochs-cv-margin-frac",
+        type=float,
+        default=0.22,
+        help="Extra epochs beyond median CV best_epoch: max(margin_min, ceil(frac * median_best)).",
+    )
+    parser.add_argument(
+        "--final-epochs-cv-margin-min",
+        type=int,
+        default=12,
+        help="Minimum absolute slack epochs added to median CV best_epoch.",
+    )
+    parser.add_argument(
+        "--final-holdout-fraction",
+        type=float,
+        default=0.12,
+        help="Scenario-level holdout on full train to probe val curve; 0 disables. Full-data epochs = min(CV cap, holdout best_epoch + slack).",
+    )
+    parser.add_argument("--final-holdout-min-scenarios", type=int, default=24, help="Skip holdout probe if fewer scenarios.")
+    parser.add_argument("--final-holdout-min-val-scenarios", type=int, default=2, help="Minimum scenarios in holdout val split.")
+    parser.add_argument("--final-holdout-min-train-scenarios", type=int, default=8, help="Minimum scenarios in holdout train split.")
+    parser.add_argument(
+        "--final-holdout-slack-frac",
+        type=float,
+        default=0.12,
+        help="Extra full-data epochs after holdout best_epoch: max(slack_min, ceil(frac * best)).",
+    )
+    parser.add_argument("--final-holdout-slack-min", type=int, default=8, help="Minimum slack epochs after holdout best_epoch.")
+    parser.add_argument(
+        "--final-probe-max-epochs",
+        type=int,
+        default=100,
+        help="Max epochs when running the holdout probe (cheaper than full CV epochs).",
+    )
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
     parser.add_argument("--input-noise-std", type=float, default=0.01)
     parser.add_argument("--n-splits", type=int, default=5)
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--hidden-dim", type=int, default=128)
-    parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.0,
+        help="Dropout in phi/context_encoder/rho (off at inference). Try 0.05–0.1 if train≪val on folds but CV is acceptable.",
+    )
+    parser.add_argument(
+        "--grad-clip-norm",
+        type=float,
+        default=0.0,
+        help="Max gradient norm (0 disables). Enable e.g. 1.0 if you see unstable loss spikes.",
+    )
     parser.add_argument(
         "--loss-type",
         type=str,

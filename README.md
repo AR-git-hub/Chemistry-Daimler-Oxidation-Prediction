@@ -35,11 +35,12 @@ pip install -r requirements.txt
 
 Default training uses a **hybrid loss** (mostly MSE + small SmoothL1 term) with `--hybrid-mse-weight 0.92`, which in GroupKFold CV typically **lowers mean normalized MSE** versus pure `mse` at the cost of a slightly higher mean MAE on validation. For the original pure-MSE baseline, pass `--loss-type mse`.
 
-Training uses **two separate Deep Sets** (one output per DOT target). **EMA weight smoothing** (`--ema-decay`, default `0.998`) improves CV vs off in quick sweeps; set `--ema-decay 0` to disable. Optional **per-target Spearman screening** (`--feature-selection`) is off by default. Reproduce cheap hparam sweeps: `PYTHONPATH=src python scripts/quick_sweep.py` (writes `artifacts/quick_sweep/summary.json`).
+Training uses **two separate Deep Sets** (one output per DOT target). **EMA** (`--ema-decay`, default `0.998`) smooths weights for checkpoints and export; set `--ema-decay 0` to disable. **Anti–over-fit defaults:** **CV-based cap** on full-data epochs (`--final-epochs-from-cv`), a **scenario holdout probe** (`--final-holdout-fraction`, default `0.12`; `0` disables): a short train on an ~88%/12% split estimates `best_epoch`, then full-data training runs `min(CV cap, best_epoch + slack)` epochs (`final_epochs_effective_t*`). Optional gradient clip (`--grad-clip-norm`, default `0`) and dropout (`--dropout`, default `0`). Each CV fold logs `train_*` vs `val_*`. Optional **Spearman screening** (`--feature-selection`) is off by default. Cheap sweeps: `PYTHONPATH=src python scripts/quick_sweep.py`.
 
 ```bash
 set PYTHONPATH=src
 python scripts/train.py --epochs 200 --final-epochs 140 --batch-size 32 --input-noise-std 0.01
+# Full-data epochs are auto-capped from CV unless --no-final-epochs-from-cv
 ```
 
 This writes:
