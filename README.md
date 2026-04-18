@@ -1,4 +1,4 @@
-﻿# Chemistry-Daimler-Oxidation-Prediction
+# Chemistry-Daimler-Oxidation-Prediction
 
 End-to-end baseline for the Daimler Oxidation Test (DOT) hackathon task.
 The solution follows the technical specification constraints:
@@ -33,7 +33,7 @@ pip install -r requirements.txt
 
 ### 2) Train model
 
-Default training uses a **hybrid loss** (mostly MSE + small SmoothL1 term) with `--hybrid-mse-weight 0.92`, which in GroupKFold CV typically **lowers mean normalized MSE** versus pure `mse` at the cost of a slightly higher mean MAE on validation. For the original pure-MSE baseline, pass `--loss-type mse`.
+Default training uses a **hybrid loss** (mostly MSE + log-cosh on residuals) with `--hybrid-mse-weight 0.92`. Degenerate / leakage-prone numeric columns are listed in `dot.config.FEATURE_BLOCKLIST` (e.g. constant viscosity at -30°C). For pure MSE, pass `--loss-type mse`; for pure log-cosh, `--loss-type logcosh`.
 
 Training uses **two separate Deep Sets** (one output per DOT target). **EMA** (`--ema-decay`, default `0.998`) smooths weights for checkpoints and export; set `--ema-decay 0` to disable. **Anti–over-fit defaults:** **CV-based cap** on full-data epochs (`--final-epochs-from-cv`), a **scenario holdout probe** (`--final-holdout-fraction`, default `0.12`; `0` disables): a short train on an ~88%/12% split estimates `best_epoch`, then full-data training runs `min(CV cap, best_epoch + slack)` epochs (`final_epochs_effective_t*`). Optional gradient clip (`--grad-clip-norm`, default `0`) and dropout (`--dropout`, default `0`). Each CV fold logs `train_*` vs `val_*`. Optional **Spearman screening** (`--feature-selection`) is off by default. Cheap sweeps: `PYTHONPATH=src python scripts/quick_sweep.py`.
 

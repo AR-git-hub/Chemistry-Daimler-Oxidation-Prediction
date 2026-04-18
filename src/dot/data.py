@@ -8,7 +8,7 @@ from typing import Dict, List, Sequence
 import numpy as np
 import pandas as pd
 
-from .config import ID_COLUMNS, SCENARIO_ID, TARGET_COLUMNS
+from .config import FEATURE_BLOCKLIST, ID_COLUMNS, SCENARIO_ID, TARGET_COLUMNS
 
 
 BOOL_MAP = {"True": 1.0, "False": 0.0, True: 1.0, False: 0.0}
@@ -72,10 +72,9 @@ def _coerce_frame_types(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _feature_columns(df: pd.DataFrame) -> List[str]:
-    excluded = set(ID_COLUMNS + TARGET_COLUMNS)
+    excluded = set(ID_COLUMNS + TARGET_COLUMNS) | set(FEATURE_BLOCKLIST)
     cols = [c for c in df.columns if c not in excluded]
-    numeric_cols = [c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
-    return numeric_cols
+    return [c for c in cols if pd.api.types.is_numeric_dtype(df[c])]
 
 
 def _build_interaction_context(

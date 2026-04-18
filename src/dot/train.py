@@ -1,4 +1,4 @@
-﻿"""Training pipeline for DOT Deep Sets baseline."""
+"""Training pipeline for DOT Deep Sets baseline."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from sklearn.model_selection import GroupKFold, GroupShuffleSplit
 from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
-from .config import ARTIFACTS_DIR, SCENARIO_ID, TARGET_COLUMNS, TRAIN_PATH
+from .config import ARTIFACTS_DIR, FEATURE_BLOCKLIST, SCENARIO_ID, TARGET_COLUMNS, TRAIN_PATH
 from .feature_selection import select_component_features_for_target
 from .data import (
     apply_context_scaler,
@@ -49,18 +49,28 @@ def _build_loader(dataset: ScenarioSetDataset, batch_size: int, shuffle: bool) -
     )
 
 
-class _HybridMseSmoothL1(nn.Module):
-    """Balances normalized MSE (leaderboard-style) with robust SmoothL1."""
+def _log_cosh_mean(diff: torch.Tensor) -> torch.Tensor:
+    """Stable mean(log(cosh(diff))) for regression (smooth near 0, ~|x| for large |x|)."""
+    ax = diff.abs()
+    return (ax + torch.nn.functional.softplus(-2.0 * ax) - 0.6931471805599453).mean()
+
+
+class _HybridMseLogCosh(nn.Module):
+    """Normalized MSE (leaderboard-style) + log-cosh on residuals (robust tails, smooth gradients)."""
 
     def __init__(self, mse_weight: float = 0.65) -> None:
         super().__init__()
         self.mse_w = float(mse_weight)
         self.mse = nn.MSELoss()
-        self.s1 = nn.SmoothL1Loss(beta=1.0)
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         w = self.mse_w
-        return w * self.mse(pred, target) + (1.0 - w) * self.s1(pred, target)
+        return w * self.mse(pred, target) + (1.0 - w) * _log_cosh_mean(pred - target)
+
+
+class _LogCoshLoss(nn.Module):
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return _log_cosh_mean(pred - target)
 
 
 def _build_criterion(loss_type: str, hybrid_mse_weight: float) -> nn.Module:
@@ -69,8 +79,10 @@ def _build_criterion(loss_type: str, hybrid_mse_weight: float) -> nn.Module:
         return nn.MSELoss()
     if loss_type == "smoothl1":
         return nn.SmoothL1Loss(beta=1.0)
+    if loss_type == "logcosh":
+        return _LogCoshLoss()
     if loss_type == "hybrid":
-        return _HybridMseSmoothL1(mse_weight=hybrid_mse_weight)
+        return _HybridMseLogCosh(mse_weight=hybrid_mse_weight)
     raise ValueError(f"Unsupported loss_type: {loss_type}")
 
 
@@ -678,6 +690,7 @@ def train(args: argparse.Namespace) -> None:
 
     metadata = {
         "target_columns": TARGET_COLUMNS,
+        "feature_blocklist": sorted(FEATURE_BLOCKLIST),
         "separate_target_models": True,
         "feature_selection": bool(args.feature_selection),
         "model_output_dim": 1,
@@ -823,8 +836,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--loss-type",
         type=str,
         default="hybrid",
-        choices=["mse", "smoothl1", "hybrid"],
-        help="Default hybrid (~0.92 MSE / 0.08 SmoothL1) improves CV MSE vs pure MSE on this split; see README.",
+        choices=["mse", "smoothl1", "logcosh", "hybrid"],
+        help="Default hybrid: ~hybrid_mse_weight MSE + (1-w) log-cosh (robust tails).",
     )
     parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "adamw"])
     parser.add_argument(
@@ -839,7 +852,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--hybrid-mse-weight",
         type=float,
         default=0.92,
-        help="For --loss-type hybrid: weight on MSE term (rest is SmoothL1).",
+        help="For --loss-type hybrid: weight on MSE term (rest is log-cosh).",
     )
     parser.add_argument(
         "--feature-selection",

@@ -1,4 +1,4 @@
-﻿"""Inference pipeline that generates predictions.csv."""
+"""Inference pipeline that generates predictions.csv."""
 
 from __future__ import annotations
 

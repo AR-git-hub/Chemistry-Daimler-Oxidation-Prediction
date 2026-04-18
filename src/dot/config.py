@@ -18,3 +18,12 @@ TARGET_COLUMNS = [
 ID_COLUMNS = ["scenario_id", "Компонент", "Наименование партии"]
 SCENARIO_ID = "scenario_id"
 
+# Extra numeric columns to drop (IDs/targets already removed in ``_feature_columns``).
+# Party name is an identifier / batch surrogate; viscosity at -30°C is constant in ``train_full``.
+FEATURE_BLOCKLIST: frozenset[str] = frozenset(
+    {
+        "Наименование партии",
+        "Кинематическая вязкость, при -30⁰С | ASTM D445",
+    }
+)
+
