@@ -621,8 +621,12 @@ def train(args: argparse.Namespace) -> None:
             device=torch.device(args.device),
         )
         if n_ho is not None:
-            n_final = int(min(n_cap, n_ho))
-            n_final = max(int(args.final_epochs_min), n_final)
+            n_merged = int(min(n_cap, n_ho))
+            frac_floor = float(args.final_fulldata_min_frac_of_cv_cap)
+            if frac_floor > 0.0:
+                n_floor = max(int(args.final_epochs_min), int(np.ceil(frac_floor * n_cap)))
+                n_merged = int(min(n_cap, max(n_merged, n_floor)))
+            n_final = max(int(args.final_epochs_min), n_merged)
             final_holdout_meta[ti] = ho_extra
         else:
             n_final = int(n_cap)
@@ -690,6 +694,7 @@ def train(args: argparse.Namespace) -> None:
         "final_epochs_from_cv": bool(args.final_epochs_from_cv),
         "final_epochs_cap": int(args.final_epochs),
         "final_holdout_fraction": float(args.final_holdout_fraction),
+        "final_fulldata_min_frac_of_cv_cap": float(args.final_fulldata_min_frac_of_cv_cap),
         **{f"final_epochs_effective_t{ti}": int(final_epochs_effective[ti]) for ti in range(len(TARGET_COLUMNS))},
         **{
             f"final_holdout_{k}_t{ti}": float(v)
@@ -772,7 +777,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--final-holdout-fraction",
         type=float,
         default=0.12,
-        help="Scenario-level holdout on full train to probe val curve; 0 disables. Full-data epochs = min(CV cap, holdout best_epoch + slack).",
+        help="Scenario holdout probe; 0 disables. Budget merges with CV cap, then floored by --final-fulldata-min-frac-of-cv-cap (see help there).",
     )
     parser.add_argument("--final-holdout-min-scenarios", type=int, default=24, help="Skip holdout probe if fewer scenarios.")
     parser.add_argument("--final-holdout-min-val-scenarios", type=int, default=2, help="Minimum scenarios in holdout val split.")
@@ -787,8 +792,14 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--final-probe-max-epochs",
         type=int,
-        default=100,
-        help="Max epochs when running the holdout probe (cheaper than full CV epochs).",
+        default=200,
+        help="Max epochs for holdout probe; should match --epochs so probe_best_epoch is not cut early.",
+    )
+    parser.add_argument(
+        "--final-fulldata-min-frac-of-cv-cap",
+        type=float,
+        default=0.88,
+        help="After min(CV cap, holdout budget), full-data epochs are at least this fraction of the CV cap (recovers LB vs too-short final fit while still below blind cap). Set 0 to use raw min(cap, holdout) only.",
     )
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--learning-rate", type=float, default=1e-3)
@@ -800,7 +811,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--dropout",
         type=float,
         default=0.0,
-        help="Dropout in phi/context_encoder/rho (off at inference). Try 0.05–0.1 if train≪val on folds but CV is acceptable.",
+        help="Dropout in phi/context_encoder/rho (off at inference). Try 0.05-0.1 if train error << val error on folds.",
     )
     parser.add_argument(
         "--grad-clip-norm",
@@ -816,7 +827,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="Default hybrid (~0.92 MSE / 0.08 SmoothL1) improves CV MSE vs pure MSE on this split; see README.",
     )
     parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "adamw"])
-    parser.add_argument("--weight-decay", type=float, default=1e-5)
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=2e-5,
+        help="L2 penalty (slightly higher default pairs with EMA / holdout budgeting).",
+    )
     parser.add_argument("--cosine-scheduler", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument("--use-heterogeneity", action=argparse.BooleanOptionalAction, default=False)
     parser.add_argument(

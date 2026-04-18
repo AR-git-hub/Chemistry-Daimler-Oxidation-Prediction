@@ -194,20 +194,49 @@ def _predict_with_artifact(
     return scenario_ids, pred
 
 
-def _fold_inverse_mse_weights(metadata_path: Path, fold_dirs: list[Path]) -> list[float]:
+def _parse_fold_idx(fold_dir: Path) -> int:
+    try:
+        return int(fold_dir.name.split("_", 1)[1])
+    except (IndexError, ValueError) as e:
+        raise ValueError(f"Unexpected fold directory name: {fold_dir.name}") from e
+
+
+def _fold_val_metrics(metadata_path: Path) -> tuple[dict[int, float], dict[int, float]]:
     root = load_metadata(metadata_path)
-    vm = {int(m["fold"]): float(m["val_mse_normalized"]) for m in root.get("validation_metrics", [])}
-    weights = []
+    vm: dict[int, float] = {}
+    va: dict[int, float] = {}
+    for m in root.get("validation_metrics", []):
+        fn = int(m["fold"])
+        vm[fn] = float(m["val_mse_normalized"])
+        va[fn] = float(m["val_mae_normalized"])
+    return vm, va
+
+
+def _fold_ensemble_weights(
+    metadata_path: Path,
+    fold_dirs: list[Path],
+    mode: str,
+    *,
+    mae_coef: float,
+) -> list[float]:
+    vm, va = _fold_val_metrics(metadata_path)
+    weights: list[float] = []
     for fold_dir in fold_dirs:
-        try:
-            fn = int(fold_dir.name.split("_", 1)[1])
-        except (IndexError, ValueError) as e:
-            raise ValueError(f"Unexpected fold directory name: {fold_dir.name}") from e
+        fn = _parse_fold_idx(fold_dir)
         mse = vm.get(fn)
+        mae = va.get(fn)
         if mse is None or mse <= 0:
             weights.append(1.0)
-        else:
+            continue
+        if mode == "inverse_mse":
             weights.append(1.0 / (mse + 1e-8))
+        elif mode == "inverse_sqrt_mse":
+            weights.append(1.0 / (float(np.sqrt(mse)) + 1e-8))
+        elif mode == "inverse_mse_mae":
+            mae_t = mae if mae is not None and mae > 0 else 0.0
+            weights.append(1.0 / (mse + float(mae_coef) * mae_t + 1e-8))
+        else:
+            raise ValueError(f"Unknown fold ensemble weighting: {mode}")
     return weights
 
 
@@ -217,8 +246,14 @@ def _infer_fold_ensemble(args: argparse.Namespace, test_df: pd.DataFrame) -> tup
         raise ValueError(f"No fold directories found in {args.folds_dir}")
 
     fold_weights: list[float] | None = None
-    if args.fold_ensemble_weighting == "inverse_mse":
-        fold_weights = _fold_inverse_mse_weights(args.metadata_path, fold_dirs)
+    mode = args.fold_ensemble_weighting
+    if mode in ("inverse_mse", "inverse_sqrt_mse", "inverse_mse_mae"):
+        fold_weights = _fold_ensemble_weights(
+            args.metadata_path,
+            fold_dirs,
+            mode,
+            mae_coef=float(args.fold_ensemble_mae_coef),
+        )
         sw = sum(fold_weights)
         fold_weights = [w / sw for w in fold_weights]
 
@@ -309,14 +344,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--fold-ensemble-weighting",
         type=str,
         default="inverse_mse",
-        choices=["mean", "inverse_mse"],
-        help="inverse_mse: weight each fold by 1/val_mse (from root metadata.json validation_metrics).",
+        choices=["mean", "inverse_mse", "inverse_sqrt_mse", "inverse_mse_mae"],
+        help="Fold weights from root metadata validation_metrics: inverse_mse_mae uses 1/(mse+coef*mae) for stabler blend.",
+    )
+    parser.add_argument(
+        "--fold-ensemble-mae-coef",
+        type=float,
+        default=0.22,
+        help="MAE multiplier for inverse_mse_mae weighting (tune 0.15–0.35).",
     )
     parser.add_argument(
         "--tta-runs",
         type=int,
-        default=3,
-        help="Forward passes averaged at inference (e.g. 5–9 for final submit; 1 for fast dev).",
+        default=8,
+        help="Forward passes averaged at inference (1 for fast dev; 8+ for submit).",
     )
     parser.add_argument("--tta-noise-std", type=float, default=0.01, help="Gaussian noise on scaled x/ctx during TTA.")
     return parser

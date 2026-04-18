@@ -54,7 +54,7 @@ set PYTHONPATH=src
 python scripts/predict.py --output-path predictions.csv
 ```
 
-By default inference uses **fold ensembling** with **inverse-MSE weights** (reads `validation_metrics` from `artifacts/metadata.json`) and **TTA** (several noisy forwards per batch). Tune e.g. `python scripts/predict.py --tta-runs 8 --fold-ensemble-weighting mean` if you want to compare.
+By default inference uses **fold ensembling** with **`inverse_mse`** weights (from `metadata.json`) and **TTA** (`--tta-runs` default 8). On the public LB, try `--fold-ensemble-weighting inverse_mse_mae` or `inverse_sqrt_mse`, and `--tta-runs 12`, without touching the train split.
 
 To force single-model inference:
 
