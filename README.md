@@ -35,6 +35,8 @@ pip install -r requirements.txt
 
 Default training uses a **hybrid loss** (mostly MSE + small SmoothL1 term) with `--hybrid-mse-weight 0.92`, which in GroupKFold CV typically **lowers mean normalized MSE** versus pure `mse` at the cost of a slightly higher mean MAE on validation. For the original pure-MSE baseline, pass `--loss-type mse`.
 
+Training uses **two separate Deep Sets** (one output per DOT target). **EMA weight smoothing** (`--ema-decay`, default `0.998`) improves CV vs off in quick sweeps; set `--ema-decay 0` to disable. Optional **per-target Spearman screening** (`--feature-selection`) is off by default. Reproduce cheap hparam sweeps: `PYTHONPATH=src python scripts/quick_sweep.py` (writes `artifacts/quick_sweep/summary.json`).
+
 ```bash
 set PYTHONPATH=src
 python scripts/train.py --epochs 200 --final-epochs 140 --batch-size 32 --input-noise-std 0.01
@@ -51,7 +53,8 @@ set PYTHONPATH=src
 python scripts/predict.py --output-path predictions.csv
 ```
 
-By default inference uses fold ensembling from `artifacts/folds/` (if available).
+By default inference uses **fold ensembling** with **inverse-MSE weights** (reads `validation_metrics` from `artifacts/metadata.json`) and **TTA** (several noisy forwards per batch). Tune e.g. `python scripts/predict.py --tta-runs 8 --fold-ensemble-weighting mean` if you want to compare.
+
 To force single-model inference:
 
 ```bash

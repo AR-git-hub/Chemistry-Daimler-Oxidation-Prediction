@@ -24,7 +24,13 @@ from dot.data import (
 from dot.model import DeepSetsRegressor, ScenarioSetDataset, collate_train
 
 
-def _eval_mse(models: DeepSetsRegressor | list[DeepSetsRegressor], loader: DataLoader, device: str) -> float:
+def _eval_mse(
+    models: DeepSetsRegressor | list[DeepSetsRegressor],
+    loader: DataLoader,
+    device: str,
+    *,
+    only_target_index: int | None = None,
+) -> float:
     if isinstance(models, DeepSetsRegressor):
         models = [models]
     for m in models:
@@ -39,7 +45,11 @@ def _eval_mse(models: DeepSetsRegressor | list[DeepSetsRegressor], loader: DataL
             yb = yb.to(device)
             if len(models) == 1:
                 pred = models[0](xb, mask, ctx)
-                loss = criterion(pred, yb)
+                if only_target_index is not None:
+                    yt = yb[:, only_target_index : only_target_index + 1]
+                else:
+                    yt = yb
+                loss = criterion(pred, yt)
                 losses.append(loss.item())
             else:
                 acc = 0.0
@@ -55,7 +65,16 @@ def run_factor_analysis(args: argparse.Namespace) -> Path:
         metadata = json.load(f)
 
     train_df = pd.read_csv(args.train_path)
-    grouped = frame_to_scenario_sets(train_df, is_train=True)
+    per_target_feats = "feature_columns_t0" in metadata
+    if per_target_feats:
+        grouped = frame_to_scenario_sets(
+            train_df,
+            is_train=True,
+            feature_columns=metadata["feature_columns_t0"],
+            interaction_feature_columns=metadata["interaction_feature_columns_t0"],
+        )
+    else:
+        grouped = frame_to_scenario_sets(train_df, is_train=True)
     if grouped.targets is None:
         raise ValueError("Targets are required for factor analysis.")
 
@@ -79,23 +98,39 @@ def run_factor_analysis(args: argparse.Namespace) -> Path:
     hetero = bool(metadata.get("use_heterogeneity", False))
 
     if metadata.get("separate_target_models"):
-        models: list[DeepSetsRegressor] = []
-        for ti in range(len(TARGET_COLUMNS)):
-            mp = metadata.get(f"model_path_t{ti}")
-            if not mp:
-                raise ValueError(f"metadata missing model_path_t{ti} for factor analysis.")
+        if per_target_feats:
+            mp0 = metadata.get("model_path_t0")
+            if not mp0:
+                raise ValueError("metadata missing model_path_t0 for factor analysis.")
             m = DeepSetsRegressor(
-                input_dim=int(metadata["input_dim"]),
-                context_dim=int(metadata["context_dim"]),
+                input_dim=int(metadata["input_dim_t0"]),
+                context_dim=int(metadata["context_dim_t0"]),
                 hidden_dim=hidden_dim,
                 output_dim=1,
                 dropout=dropout,
                 use_heterogeneity=hetero,
             )
-            m.load_state_dict(torch.load(mp, map_location=torch.device(args.device)))
+            m.load_state_dict(torch.load(mp0, map_location=torch.device(args.device)))
             m.to(args.device)
-            models.append(m)
-        model_or_list: DeepSetsRegressor | list[DeepSetsRegressor] = models
+            model_or_list = m
+        else:
+            models: list[DeepSetsRegressor] = []
+            for ti in range(len(TARGET_COLUMNS)):
+                mp = metadata.get(f"model_path_t{ti}")
+                if not mp:
+                    raise ValueError(f"metadata missing model_path_t{ti} for factor analysis.")
+                m = DeepSetsRegressor(
+                    input_dim=int(metadata["input_dim"]),
+                    context_dim=int(metadata["context_dim"]),
+                    hidden_dim=hidden_dim,
+                    output_dim=1,
+                    dropout=dropout,
+                    use_heterogeneity=hetero,
+                )
+                m.load_state_dict(torch.load(mp, map_location=torch.device(args.device)))
+                m.to(args.device)
+                models.append(m)
+            model_or_list = models
     else:
         m = DeepSetsRegressor(
             input_dim=int(metadata["input_dim"]),
@@ -109,7 +144,12 @@ def run_factor_analysis(args: argparse.Namespace) -> Path:
         m.to(args.device)
         model_or_list = m
 
-    baseline_mse = _eval_mse(model_or_list, val_loader, args.device)
+    baseline_mse = _eval_mse(
+        model_or_list,
+        val_loader,
+        args.device,
+        only_target_index=0 if per_target_feats else None,
+    )
 
     val_context = c_scaled[val_idx].copy()
     rng = np.random.default_rng(args.seed)
@@ -123,7 +163,12 @@ def run_factor_analysis(args: argparse.Namespace) -> Path:
             y_norm[val_idx],
         )
         perm_loader = DataLoader(perm_dataset, batch_size=64, shuffle=False, collate_fn=collate_train)
-        perm_mse = _eval_mse(model_or_list, perm_loader, args.device)
+        perm_mse = _eval_mse(
+            model_or_list,
+            perm_loader,
+            args.device,
+            only_target_index=0 if per_target_feats else None,
+        )
         impacts.append(
             {
                 "feature": feat_name,

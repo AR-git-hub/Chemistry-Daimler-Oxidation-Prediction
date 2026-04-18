@@ -1,0 +1,85 @@
+{
+  "runs": [
+    {
+      "name": "base",
+      "mse": 0.24721520539005154,
+      "mae": 0.25837671346962454,
+      "args": []
+    },
+    {
+      "name": "cosine",
+      "mse": 0.25491818734444677,
+      "mae": 0.29614079333841803,
+      "args": [
+        "--cosine-scheduler"
+      ]
+    },
+    {
+      "name": "adamw_cos",
+      "mse": 0.25621516646060627,
+      "mae": 0.3004825748503208,
+      "args": [
+        "--optimizer",
+        "adamw",
+        "--weight-decay",
+        "0.0001",
+        "--cosine-scheduler"
+      ]
+    },
+    {
+      "name": "adamw_wd4",
+      "mse": 0.2634852500457782,
+      "mae": 0.30361729450523856,
+      "args": [
+        "--optimizer",
+        "adamw",
+        "--weight-decay",
+        "0.0001"
+      ]
+    },
+    {
+      "name": "hybrid096_cos",
+      "mse": 0.266644131205976,
+      "mae": 0.29921138733625413,
+      "args": [
+        "--hybrid-mse-weight",
+        "0.96",
+        "--cosine-scheduler"
+      ]
+    },
+    {
+      "name": "hybrid096",
+      "mse": 0.2667726688698167,
+      "mae": 0.28336038291454313,
+      "args": [
+        "--hybrid-mse-weight",
+        "0.96"
+      ]
+    },
+    {
+      "name": "hybrid098",
+      "mse": 0.2756583946989849,
+      "mae": 0.29646886736154554,
+      "args": [
+        "--hybrid-mse-weight",
+        "0.98"
+      ]
+    },
+    {
+      "name": "hybrid095",
+      "mse": 0.31068868231377567,
+      "mae": 0.34268416464328766,
+      "args": [
+        "--hybrid-mse-weight",
+        "0.95"
+      ]
+    }
+  ],
+  "winner": {
+    "name": "base",
+    "mse": 0.24721520539005154,
+    "mae": 0.25837671346962454,
+    "args": []
+  },
+  "mae_slip_used": 1.025
+}
