@@ -81,23 +81,33 @@ class DeepSetsRegressor(nn.Module):
         context_dim: int,
         hidden_dim: int = 128,
         output_dim: int = 2,
+        dropout: float = 0.0,
+        use_heterogeneity: bool = False,
     ) -> None:
         super().__init__()
+        self.use_heterogeneity = bool(use_heterogeneity)
+        dp = float(dropout)
         self.phi = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dp),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dp),
         )
         self.context_encoder = nn.Sequential(
             nn.Linear(context_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dp),
             nn.Linear(hidden_dim, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dp),
         )
+        rho_in = hidden_dim * 3 + 1 + (1 if self.use_heterogeneity else 0)
         self.rho = nn.Sequential(
-            nn.Linear(hidden_dim * 3 + 1, hidden_dim),
+            nn.Linear(rho_in, hidden_dim),
             nn.ReLU(),
+            nn.Dropout(dp),
             nn.Linear(hidden_dim, output_dim),
         )
 
@@ -116,6 +126,12 @@ class DeepSetsRegressor(nn.Module):
 
         size_feature = lengths / lengths.max().clamp_min(1.0)
         context_emb = self.context_encoder(context)
-        pooled = torch.cat([pooled_mean, pooled_max, context_emb, size_feature], dim=1)
+        parts = [pooled_mean, pooled_max, context_emb, size_feature]
+        if self.use_heterogeneity:
+            ex2 = h_masked.pow(2).sum(dim=1) / lengths
+            pooled_var = (ex2 - pooled_mean.pow(2)).clamp_min(0.0)
+            hetero = torch.sqrt(pooled_var.mean(dim=1, keepdim=True) + 1e-8)
+            parts.append(hetero)
+        pooled = torch.cat(parts, dim=1)
         return self.rho(pooled)
 

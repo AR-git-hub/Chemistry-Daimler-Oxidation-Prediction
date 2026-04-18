@@ -33,6 +33,8 @@ pip install -r requirements.txt
 
 ### 2) Train model
 
+Default training uses a **hybrid loss** (mostly MSE + small SmoothL1 term) with `--hybrid-mse-weight 0.92`, which in GroupKFold CV typically **lowers mean normalized MSE** versus pure `mse` at the cost of a slightly higher mean MAE on validation. For the original pure-MSE baseline, pass `--loss-type mse`.
+
 ```bash
 set PYTHONPATH=src
 python scripts/train.py --epochs 200 --final-epochs 140 --batch-size 32 --input-noise-std 0.01

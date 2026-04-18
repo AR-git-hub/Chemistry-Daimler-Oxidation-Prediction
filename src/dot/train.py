@@ -12,7 +12,9 @@ from typing import Dict, Tuple
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 from sklearn.model_selection import GroupKFold
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from .config import ARTIFACTS_DIR, SCENARIO_ID, TARGET_COLUMNS, TRAIN_PATH
@@ -46,6 +48,45 @@ def _build_loader(dataset: ScenarioSetDataset, batch_size: int, shuffle: bool) -
     )
 
 
+class _HybridMseSmoothL1(nn.Module):
+    """Balances normalized MSE (leaderboard-style) with robust SmoothL1."""
+
+    def __init__(self, mse_weight: float = 0.65) -> None:
+        super().__init__()
+        self.mse_w = float(mse_weight)
+        self.mse = nn.MSELoss()
+        self.s1 = nn.SmoothL1Loss(beta=1.0)
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        w = self.mse_w
+        return w * self.mse(pred, target) + (1.0 - w) * self.s1(pred, target)
+
+
+def _build_criterion(loss_type: str, hybrid_mse_weight: float) -> nn.Module:
+    loss_type = loss_type.lower()
+    if loss_type == "mse":
+        return nn.MSELoss()
+    if loss_type == "smoothl1":
+        return nn.SmoothL1Loss(beta=1.0)
+    if loss_type == "hybrid":
+        return _HybridMseSmoothL1(mse_weight=hybrid_mse_weight)
+    raise ValueError(f"Unsupported loss_type: {loss_type}")
+
+
+def _build_optimizer(
+    model: nn.Module,
+    optimizer_name: str,
+    lr: float,
+    weight_decay: float,
+) -> torch.optim.Optimizer:
+    name = optimizer_name.lower()
+    if name == "adam":
+        return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    if name == "adamw":
+        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+
+
 def _evaluate(model: DeepSetsRegressor, loader: DataLoader, device: torch.device) -> float:
     model.eval()
     losses = []
@@ -74,10 +115,18 @@ def _train_fold(
     input_dim: int,
     context_dim: int,
     output_dim: int,
+    hidden_dim: int,
+    dropout: float,
+    use_heterogeneity: bool,
     epochs: int,
     batch_size: int,
     lr: float,
     input_noise_std: float,
+    loss_type: str,
+    hybrid_mse_weight: float,
+    optimizer_name: str,
+    weight_decay: float,
+    use_cosine_scheduler: bool,
     device: torch.device,
 ) -> Tuple[DeepSetsRegressor, Dict[str, float]]:
     train_loader = _build_loader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -86,11 +135,14 @@ def _train_fold(
     model = DeepSetsRegressor(
         input_dim=input_dim,
         context_dim=context_dim,
-        hidden_dim=128,
+        hidden_dim=hidden_dim,
         output_dim=output_dim,
+        dropout=dropout,
+        use_heterogeneity=use_heterogeneity,
     ).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr, weight_decay=1e-5)
-    criterion = torch.nn.MSELoss()
+    optimizer = _build_optimizer(model, optimizer_name, lr, weight_decay)
+    criterion = _build_criterion(loss_type, hybrid_mse_weight)
+    scheduler = CosineAnnealingLR(optimizer, T_max=max(epochs, 1)) if use_cosine_scheduler else None
 
     best_state = None
     best_val = float("inf")
@@ -113,6 +165,9 @@ def _train_fold(
             loss = criterion(pred, yb)
             loss.backward()
             optimizer.step()
+
+        if scheduler is not None:
+            scheduler.step()
 
         val_metrics = _evaluate(model, val_loader, device)
         val_loss = val_metrics["mse"]
@@ -180,8 +235,9 @@ def _build_fold_datasets(
 
 def train(args: argparse.Namespace) -> None:
     set_seed(args.seed)
-    ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
-    folds_dir = ARTIFACTS_DIR / "folds"
+    out_dir = Path(args.artifacts_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    folds_dir = out_dir / "folds"
     if folds_dir.exists():
         shutil.rmtree(folds_dir)
     folds_dir.mkdir(parents=True, exist_ok=True)
@@ -206,10 +262,18 @@ def train(args: argparse.Namespace) -> None:
             input_dim=len(fold_meta["feature_columns"]),
             context_dim=len(fold_meta["context_columns"]),
             output_dim=len(TARGET_COLUMNS),
+            hidden_dim=args.hidden_dim,
+            dropout=args.dropout,
+            use_heterogeneity=args.use_heterogeneity,
             epochs=args.epochs,
             batch_size=args.batch_size,
             lr=args.learning_rate,
             input_noise_std=args.input_noise_std,
+            loss_type=args.loss_type,
+            hybrid_mse_weight=args.hybrid_mse_weight,
+            optimizer_name=args.optimizer,
+            weight_decay=args.weight_decay,
+            use_cosine_scheduler=args.cosine_scheduler,
             device=torch.device(args.device),
         )
         fold_metric["fold"] = fold_idx
@@ -225,7 +289,9 @@ def train(args: argparse.Namespace) -> None:
             "input_dim": len(fold_meta["feature_columns"]),
             "context_dim": len(fold_meta["context_columns"]),
             "output_dim": len(TARGET_COLUMNS),
-            "hidden_dim": 128,
+            "hidden_dim": args.hidden_dim,
+            "dropout": float(args.dropout),
+            "use_heterogeneity": bool(args.use_heterogeneity),
             "feature_columns": fold_meta["feature_columns"],
             "context_columns": fold_meta["context_columns"],
             "interaction_feature_columns": fold_meta["interaction_feature_columns"],
@@ -262,11 +328,13 @@ def train(args: argparse.Namespace) -> None:
     final_model = DeepSetsRegressor(
         input_dim=len(grouped_train.feature_columns),
         context_dim=len(grouped_train.context_columns),
-        hidden_dim=128,
+        hidden_dim=args.hidden_dim,
         output_dim=len(TARGET_COLUMNS),
+        dropout=args.dropout,
+        use_heterogeneity=args.use_heterogeneity,
     ).to(torch.device(args.device))
-    final_optimizer = torch.optim.Adam(final_model.parameters(), lr=args.learning_rate, weight_decay=1e-5)
-    criterion = torch.nn.MSELoss()
+    final_optimizer = _build_optimizer(final_model, args.optimizer, args.learning_rate, args.weight_decay)
+    criterion = _build_criterion(args.loss_type, args.hybrid_mse_weight)
     final_model.train()
     for _ in range(args.final_epochs):
         for xb, mask, ctx, yb in full_loader:
@@ -283,7 +351,7 @@ def train(args: argparse.Namespace) -> None:
             loss.backward()
             final_optimizer.step()
 
-    model_path = ARTIFACTS_DIR / "deepsets_model.pt"
+    model_path = out_dir / "deepsets_model.pt"
     torch.save(final_model.state_dict(), model_path)
 
     metadata = {
@@ -300,6 +368,14 @@ def train(args: argparse.Namespace) -> None:
         "input_dim": len(grouped_train.feature_columns),
         "context_dim": len(grouped_train.context_columns),
         "output_dim": len(grouped_train.target_columns),
+        "hidden_dim": args.hidden_dim,
+        "dropout": float(args.dropout),
+        "use_heterogeneity": bool(args.use_heterogeneity),
+        "loss_type": args.loss_type,
+        "hybrid_mse_weight": float(args.hybrid_mse_weight),
+        "optimizer": args.optimizer,
+        "weight_decay": float(args.weight_decay),
+        "cosine_scheduler": bool(args.cosine_scheduler),
         "validation_metrics": fold_metrics,
         "cv_mean_mse_normalized": float(np.mean([m["val_mse_normalized"] for m in fold_metrics])),
         "cv_mean_mae_normalized": float(np.mean([m["val_mae_normalized"] for m in fold_metrics])),
@@ -308,15 +384,16 @@ def train(args: argparse.Namespace) -> None:
         "fold_count": len(fold_metrics),
         "model_path": str(model_path),
     }
-    with (ARTIFACTS_DIR / "metadata.json").open("w", encoding="utf-8") as f:
+    with (out_dir / "metadata.json").open("w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)
 
-    print(f"Training complete. Artifacts written to: {ARTIFACTS_DIR}")
+    print(f"Training complete. Artifacts written to: {out_dir}")
 
 
 def build_arg_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Train Deep Sets baseline for DOT task.")
     parser.add_argument("--train-path", type=Path, default=TRAIN_PATH)
+    parser.add_argument("--artifacts-dir", type=Path, default=ARTIFACTS_DIR)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--epochs", type=int, default=200)
     parser.add_argument("--final-epochs", type=int, default=140)
@@ -325,6 +402,25 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input-noise-std", type=float, default=0.01)
     parser.add_argument("--n-splits", type=int, default=5)
     parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument("--hidden-dim", type=int, default=128)
+    parser.add_argument("--dropout", type=float, default=0.0)
+    parser.add_argument(
+        "--loss-type",
+        type=str,
+        default="hybrid",
+        choices=["mse", "smoothl1", "hybrid"],
+        help="Default hybrid (~0.92 MSE / 0.08 SmoothL1) improves CV MSE vs pure MSE on this split; see README.",
+    )
+    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "adamw"])
+    parser.add_argument("--weight-decay", type=float, default=1e-5)
+    parser.add_argument("--cosine-scheduler", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--use-heterogeneity", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--hybrid-mse-weight",
+        type=float,
+        default=0.92,
+        help="For --loss-type hybrid: weight on MSE term (rest is SmoothL1).",
+    )
     return parser
 
 

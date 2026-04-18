@@ -391,35 +391,43 @@
   "input_dim": 85,
   "context_dim": 32,
   "output_dim": 2,
+  "hidden_dim": 128,
+  "dropout": 0.0,
+  "use_heterogeneity": false,
+  "loss_type": "hybrid",
+  "hybrid_mse_weight": 0.92,
+  "optimizer": "adam",
+  "weight_decay": 1e-05,
+  "cosine_scheduler": false,
   "validation_metrics": [
     {
-      "val_mse_normalized": 0.13221986778080463,
-      "val_mae_normalized": 0.18518775701522827,
+      "val_mse_normalized": 0.1261133519001305,
+      "val_mae_normalized": 0.19636793434619904,
       "fold": 1
     },
     {
-      "val_mse_normalized": 0.3580079674720764,
-      "val_mae_normalized": 0.3822280168533325,
+      "val_mse_normalized": 0.32747242972254753,
+      "val_mae_normalized": 0.36763203889131546,
       "fold": 2
     },
     {
-      "val_mse_normalized": 0.3468303959816694,
-      "val_mae_normalized": 0.28685400635004044,
+      "val_mse_normalized": 0.35498981922864914,
+      "val_mae_normalized": 0.31739968061447144,
       "fold": 3
     },
     {
-      "val_mse_normalized": 0.21557150222361088,
-      "val_mae_normalized": 0.2572001963853836,
+      "val_mse_normalized": 0.2214260846376419,
+      "val_mae_normalized": 0.265481673181057,
       "fold": 4
     },
     {
-      "val_mse_normalized": 0.14090500213205814,
-      "val_mae_normalized": 0.23729365319013596,
+      "val_mse_normalized": 0.1499433796852827,
+      "val_mae_normalized": 0.248185932636261,
       "fold": 5
     }
   ],
-  "cv_mean_mse_normalized": 0.2387069471180439,
-  "cv_mean_mae_normalized": 0.26975272595882416,
+  "cv_mean_mse_normalized": 0.23598901303485037,
+  "cv_mean_mae_normalized": 0.2790134519338608,
   "input_noise_std": 0.01,
   "fold_ensemble_dir": "C:\\Users\\Aleksandr Riabkov\\Desktop\\Daimler Hack\\Chemistry-Daimler-Oxidation-Prediction\\artifacts\\folds",
   "fold_count": 5,

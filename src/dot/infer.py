@@ -62,6 +62,8 @@ def _predict_with_artifact(
         context_dim=int(artifact_meta["context_dim"]),
         hidden_dim=int(artifact_meta.get("hidden_dim", 128)),
         output_dim=int(artifact_meta["output_dim"]),
+        dropout=float(artifact_meta.get("dropout", 0.0)),
+        use_heterogeneity=bool(artifact_meta.get("use_heterogeneity", False)),
     )
     state_dict = torch.load(model_path, map_location=torch.device(device))
     model.load_state_dict(state_dict)

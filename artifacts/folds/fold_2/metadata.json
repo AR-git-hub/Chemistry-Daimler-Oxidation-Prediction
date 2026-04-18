@@ -4,6 +4,8 @@
   "context_dim": 32,
   "output_dim": 2,
   "hidden_dim": 128,
+  "dropout": 0.0,
+  "use_heterogeneity": false,
   "feature_columns": [
     "Массовая доля, %",
     "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
