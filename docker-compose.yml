@@ -1,0 +1,10 @@
+﻿version: "3.9"
+
+services:
+  dot-inference:
+    build: .
+    container_name: dot-inference
+    command: python scripts/predict.py --output-path predictions.csv
+    volumes:
+      - ./:/app
+
