@@ -14,8 +14,8 @@ The solution follows the technical specification constraints:
 - `src/dot/` - core implementation:
   - `data.py` - scenario-level set construction and normalization;
   - `model.py` - Deep Sets model for variable-size component sets;
-  - `train.py` - model training and artifact export;
-  - `infer.py` - deterministic inference and `predictions.csv` generation;
+  - `train.py` - leakage-safe GroupKFold training + fold artifact export for ensembling;
+  - `infer.py` - deterministic inference (`fold ensemble` by default, single-model fallback);
   - `validate.py` - strict output format validation.
 - `src/data/`, `src/features/`, `src/models/`, `src/train/`, `src/infer/`, `src/interpret/` - structured module layout matching project plan.
 - `scripts/` - CLI entrypoints.
@@ -47,6 +47,14 @@ This writes:
 ```bash
 set PYTHONPATH=src
 python scripts/predict.py --output-path predictions.csv
+```
+
+By default inference uses fold ensembling from `artifacts/folds/` (if available).
+To force single-model inference:
+
+```bash
+set PYTHONPATH=src
+python scripts/predict.py --no-use-fold-ensemble --output-path predictions.csv
 ```
 
 ### 4) Validate submission format

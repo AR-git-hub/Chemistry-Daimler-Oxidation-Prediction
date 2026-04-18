@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import shutil
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -180,6 +181,10 @@ def _build_fold_datasets(
 def train(args: argparse.Namespace) -> None:
     set_seed(args.seed)
     ARTIFACTS_DIR.mkdir(parents=True, exist_ok=True)
+    folds_dir = ARTIFACTS_DIR / "folds"
+    if folds_dir.exists():
+        shutil.rmtree(folds_dir)
+    folds_dir.mkdir(parents=True, exist_ok=True)
 
     raw_train = pd.read_csv(args.train_path)
     scenario_ids = np.array(sorted(raw_train[SCENARIO_ID].unique().tolist()))
@@ -194,8 +199,8 @@ def train(args: argparse.Namespace) -> None:
         train_fold_df = raw_train[raw_train[SCENARIO_ID].isin(train_ids)].copy()
         val_fold_df = raw_train[raw_train[SCENARIO_ID].isin(val_ids)].copy()
 
-        train_dataset, val_dataset, _, _, _, fold_meta = _build_fold_datasets(train_fold_df, val_fold_df)
-        _, fold_metric = _train_fold(
+        train_dataset, val_dataset, x_stats, c_stats, y_stats, fold_meta = _build_fold_datasets(train_fold_df, val_fold_df)
+        fold_model, fold_metric = _train_fold(
             train_dataset=train_dataset,
             val_dataset=val_dataset,
             input_dim=len(fold_meta["feature_columns"]),
@@ -209,6 +214,31 @@ def train(args: argparse.Namespace) -> None:
         )
         fold_metric["fold"] = fold_idx
         fold_metrics.append(fold_metric)
+
+        fold_dir = folds_dir / f"fold_{fold_idx}"
+        fold_dir.mkdir(parents=True, exist_ok=True)
+        fold_model_path = fold_dir / "model.pt"
+        torch.save(fold_model.state_dict(), fold_model_path)
+
+        fold_metadata = {
+            "fold": fold_idx,
+            "input_dim": len(fold_meta["feature_columns"]),
+            "context_dim": len(fold_meta["context_columns"]),
+            "output_dim": len(TARGET_COLUMNS),
+            "hidden_dim": 128,
+            "feature_columns": fold_meta["feature_columns"],
+            "context_columns": fold_meta["context_columns"],
+            "interaction_feature_columns": fold_meta["interaction_feature_columns"],
+            "x_mean": x_stats["mean"].tolist(),
+            "x_std": x_stats["std"].tolist(),
+            "ctx_mean": c_stats["mean"].tolist(),
+            "ctx_std": c_stats["std"].tolist(),
+            "y_mean": y_stats["mean"].tolist(),
+            "y_std": y_stats["std"].tolist(),
+            "model_path": str(fold_model_path),
+        }
+        with (fold_dir / "metadata.json").open("w", encoding="utf-8") as f:
+            json.dump(fold_metadata, f, ensure_ascii=False, indent=2)
 
     # Re-train on full dataset for final inference artifact (no CV leakage concerns).
     grouped_train = frame_to_scenario_sets(raw_train, is_train=True)
@@ -274,6 +304,8 @@ def train(args: argparse.Namespace) -> None:
         "cv_mean_mse_normalized": float(np.mean([m["val_mse_normalized"] for m in fold_metrics])),
         "cv_mean_mae_normalized": float(np.mean([m["val_mae_normalized"] for m in fold_metrics])),
         "input_noise_std": float(args.input_noise_std),
+        "fold_ensemble_dir": str(folds_dir),
+        "fold_count": len(fold_metrics),
         "model_path": str(model_path),
     }
     with (ARTIFACTS_DIR / "metadata.json").open("w", encoding="utf-8") as f:
