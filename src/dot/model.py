@@ -73,14 +73,18 @@ def collate_infer(batch: List[Tuple[torch.Tensor, torch.Tensor]]) -> Tuple[torch
 
 
 class DeepSetsRegressor(nn.Module):
-    """Permutation-invariant regressor for scenario component sets."""
+    """Permutation-invariant regressor for scenario component sets.
+
+    Use ``output_dim=1`` when training one network per target; ``output_dim=2`` for a
+    legacy joint head (older checkpoints).
+    """
 
     def __init__(
         self,
         input_dim: int,
         context_dim: int,
         hidden_dim: int = 128,
-        output_dim: int = 2,
+        output_dim: int = 1,
         dropout: float = 0.0,
         use_heterogeneity: bool = False,
     ) -> None:

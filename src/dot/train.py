@@ -87,7 +87,7 @@ def _build_optimizer(
     raise ValueError(f"Unsupported optimizer: {optimizer_name}")
 
 
-def _evaluate(model: DeepSetsRegressor, loader: DataLoader, device: torch.device) -> float:
+def _evaluate(model: DeepSetsRegressor, loader: DataLoader, device: torch.device) -> Dict[str, float]:
     model.eval()
     losses = []
     mae_losses = []
@@ -115,6 +115,7 @@ def _train_fold(
     input_dim: int,
     context_dim: int,
     output_dim: int,
+    target_column: str,
     hidden_dim: int,
     dropout: float,
     use_heterogeneity: bool,
@@ -129,6 +130,7 @@ def _train_fold(
     use_cosine_scheduler: bool,
     device: torch.device,
 ) -> Tuple[DeepSetsRegressor, Dict[str, float]]:
+    """Train a single-output head (``output_dim`` is 1 for per-target models)."""
     train_loader = _build_loader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = _build_loader(val_dataset, batch_size=batch_size, shuffle=False)
 
@@ -186,6 +188,7 @@ def _train_fold(
     metrics: Dict[str, float] = {
         "val_mse_normalized": final_metrics["mse"],
         "val_mae_normalized": final_metrics["mae"],
+        "target_column": target_column,
     }
     return model, metrics
 
@@ -256,53 +259,80 @@ def train(args: argparse.Namespace) -> None:
         val_fold_df = raw_train[raw_train[SCENARIO_ID].isin(val_ids)].copy()
 
         train_dataset, val_dataset, x_stats, c_stats, y_stats, fold_meta = _build_fold_datasets(train_fold_df, val_fold_df)
-        fold_model, fold_metric = _train_fold(
-            train_dataset=train_dataset,
-            val_dataset=val_dataset,
-            input_dim=len(fold_meta["feature_columns"]),
-            context_dim=len(fold_meta["context_columns"]),
-            output_dim=len(TARGET_COLUMNS),
-            hidden_dim=args.hidden_dim,
-            dropout=args.dropout,
-            use_heterogeneity=args.use_heterogeneity,
-            epochs=args.epochs,
-            batch_size=args.batch_size,
-            lr=args.learning_rate,
-            input_noise_std=args.input_noise_std,
-            loss_type=args.loss_type,
-            hybrid_mse_weight=args.hybrid_mse_weight,
-            optimizer_name=args.optimizer,
-            weight_decay=args.weight_decay,
-            use_cosine_scheduler=args.cosine_scheduler,
-            device=torch.device(args.device),
-        )
-        fold_metric["fold"] = fold_idx
-        fold_metrics.append(fold_metric)
+        assert train_dataset.targets is not None and val_dataset.targets is not None
+        train_y_np = train_dataset.targets.numpy()
+        val_y_np = val_dataset.targets.numpy()
+        train_x_list = [c.cpu().numpy() for c in train_dataset.components]
+        val_x_list = [c.cpu().numpy() for c in val_dataset.components]
+        train_ctx = train_dataset.context.numpy()
+        val_ctx = val_dataset.context.numpy()
 
+        per_target_metrics: list[Dict[str, float]] = []
         fold_dir = folds_dir / f"fold_{fold_idx}"
         fold_dir.mkdir(parents=True, exist_ok=True)
-        fold_model_path = fold_dir / "model.pt"
-        torch.save(fold_model.state_dict(), fold_model_path)
 
-        fold_metadata = {
+        for ti, tcol in enumerate(TARGET_COLUMNS):
+            train_ds_t = ScenarioSetDataset(train_x_list, train_ctx, train_y_np[:, ti : ti + 1])
+            val_ds_t = ScenarioSetDataset(val_x_list, val_ctx, val_y_np[:, ti : ti + 1])
+            fold_model, fold_metric_one = _train_fold(
+                train_dataset=train_ds_t,
+                val_dataset=val_ds_t,
+                input_dim=len(fold_meta["feature_columns"]),
+                context_dim=len(fold_meta["context_columns"]),
+                output_dim=1,
+                target_column=tcol,
+                hidden_dim=args.hidden_dim,
+                dropout=args.dropout,
+                use_heterogeneity=args.use_heterogeneity,
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                lr=args.learning_rate,
+                input_noise_std=args.input_noise_std,
+                loss_type=args.loss_type,
+                hybrid_mse_weight=args.hybrid_mse_weight,
+                optimizer_name=args.optimizer,
+                weight_decay=args.weight_decay,
+                use_cosine_scheduler=args.cosine_scheduler,
+                device=torch.device(args.device),
+            )
+            safe_name = f"model_t{ti}.pt"
+            fold_model_path = fold_dir / safe_name
+            torch.save(fold_model.state_dict(), fold_model_path)
+            per_target_metrics.append(fold_metric_one)
+
+        fold_metric = {
             "fold": fold_idx,
+            "val_mse_normalized": float(np.mean([m["val_mse_normalized"] for m in per_target_metrics])),
+            "val_mae_normalized": float(np.mean([m["val_mae_normalized"] for m in per_target_metrics])),
+            **{f"val_mse_normalized_t{ti}": m["val_mse_normalized"] for ti, m in enumerate(per_target_metrics)},
+            **{f"val_mae_normalized_t{ti}": m["val_mae_normalized"] for ti, m in enumerate(per_target_metrics)},
+        }
+        fold_metrics.append(fold_metric)
+
+        fold_metadata: Dict[str, object] = {
+            "fold": fold_idx,
+            "separate_target_models": True,
             "input_dim": len(fold_meta["feature_columns"]),
             "context_dim": len(fold_meta["context_columns"]),
             "output_dim": len(TARGET_COLUMNS),
+            "model_output_dim": 1,
             "hidden_dim": args.hidden_dim,
             "dropout": float(args.dropout),
             "use_heterogeneity": bool(args.use_heterogeneity),
             "feature_columns": fold_meta["feature_columns"],
             "context_columns": fold_meta["context_columns"],
             "interaction_feature_columns": fold_meta["interaction_feature_columns"],
+            "target_columns": TARGET_COLUMNS,
             "x_mean": x_stats["mean"].tolist(),
             "x_std": x_stats["std"].tolist(),
             "ctx_mean": c_stats["mean"].tolist(),
             "ctx_std": c_stats["std"].tolist(),
             "y_mean": y_stats["mean"].tolist(),
             "y_std": y_stats["std"].tolist(),
-            "model_path": str(fold_model_path),
         }
+        for ti in range(len(TARGET_COLUMNS)):
+            fold_metadata[f"model_path_t{ti}"] = str((fold_dir / f"model_t{ti}.pt").resolve())
+
         with (fold_dir / "metadata.json").open("w", encoding="utf-8") as f:
             json.dump(fold_metadata, f, ensure_ascii=False, indent=2)
 
@@ -316,49 +346,54 @@ def train(args: argparse.Namespace) -> None:
     scaled_components = apply_feature_scaler(grouped_train.components, scaler_stats)
     scaled_context = apply_context_scaler(grouped_train.context, context_scaler)
     y_norm = y_stats["y_norm"]
-    dataset = ScenarioSetDataset(scaled_components, scaled_context, y_norm)
+    model_path_by_target: Dict[int, str] = {}
+    for ti in range(len(TARGET_COLUMNS)):
+        y_one = y_norm[:, ti : ti + 1]
+        dataset_t = ScenarioSetDataset(scaled_components, scaled_context, y_one)
+        full_loader = DataLoader(
+            dataset_t,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=0,
+            collate_fn=collate_train,
+        )
+        final_model = DeepSetsRegressor(
+            input_dim=len(grouped_train.feature_columns),
+            context_dim=len(grouped_train.context_columns),
+            hidden_dim=args.hidden_dim,
+            output_dim=1,
+            dropout=args.dropout,
+            use_heterogeneity=args.use_heterogeneity,
+        ).to(torch.device(args.device))
+        final_optimizer = _build_optimizer(final_model, args.optimizer, args.learning_rate, args.weight_decay)
+        criterion = _build_criterion(args.loss_type, args.hybrid_mse_weight)
+        final_model.train()
+        for _ in range(args.final_epochs):
+            for xb, mask, ctx, yb in full_loader:
+                xb = xb.to(args.device)
+                mask = mask.to(args.device)
+                ctx = ctx.to(args.device)
+                yb = yb.to(args.device)
+                final_optimizer.zero_grad()
+                if args.input_noise_std > 0:
+                    xb = xb + torch.randn_like(xb) * args.input_noise_std
+                    ctx = ctx + torch.randn_like(ctx) * args.input_noise_std
+                pred = final_model(xb, mask, ctx)
+                loss = criterion(pred, yb)
+                loss.backward()
+                final_optimizer.step()
 
-    full_loader = DataLoader(
-        dataset,
-        batch_size=args.batch_size,
-        shuffle=True,
-        num_workers=0,
-        collate_fn=collate_train,
-    )
-    final_model = DeepSetsRegressor(
-        input_dim=len(grouped_train.feature_columns),
-        context_dim=len(grouped_train.context_columns),
-        hidden_dim=args.hidden_dim,
-        output_dim=len(TARGET_COLUMNS),
-        dropout=args.dropout,
-        use_heterogeneity=args.use_heterogeneity,
-    ).to(torch.device(args.device))
-    final_optimizer = _build_optimizer(final_model, args.optimizer, args.learning_rate, args.weight_decay)
-    criterion = _build_criterion(args.loss_type, args.hybrid_mse_weight)
-    final_model.train()
-    for _ in range(args.final_epochs):
-        for xb, mask, ctx, yb in full_loader:
-            xb = xb.to(args.device)
-            mask = mask.to(args.device)
-            ctx = ctx.to(args.device)
-            yb = yb.to(args.device)
-            final_optimizer.zero_grad()
-            if args.input_noise_std > 0:
-                xb = xb + torch.randn_like(xb) * args.input_noise_std
-                ctx = ctx + torch.randn_like(ctx) * args.input_noise_std
-            pred = final_model(xb, mask, ctx)
-            loss = criterion(pred, yb)
-            loss.backward()
-            final_optimizer.step()
-
-    model_path = out_dir / "deepsets_model.pt"
-    torch.save(final_model.state_dict(), model_path)
+        mp = out_dir / f"deepsets_model_t{ti}.pt"
+        torch.save(final_model.state_dict(), mp)
+        model_path_by_target[ti] = str(mp.resolve())
 
     metadata = {
         "feature_columns": grouped_train.feature_columns,
         "context_columns": grouped_train.context_columns,
         "interaction_feature_columns": grouped_train.interaction_feature_columns,
         "target_columns": grouped_train.target_columns,
+        "separate_target_models": True,
+        "model_output_dim": 1,
         "x_mean": scaler_stats["mean"].tolist(),
         "x_std": scaler_stats["std"].tolist(),
         "ctx_mean": context_scaler["mean"].tolist(),
@@ -382,7 +417,7 @@ def train(args: argparse.Namespace) -> None:
         "input_noise_std": float(args.input_noise_std),
         "fold_ensemble_dir": str(folds_dir),
         "fold_count": len(fold_metrics),
-        "model_path": str(model_path),
+        **{f"model_path_t{ti}": model_path_by_target[ti] for ti in range(len(TARGET_COLUMNS))},
     }
     with (out_dir / "metadata.json").open("w", encoding="utf-8") as f:
         json.dump(metadata, f, ensure_ascii=False, indent=2)

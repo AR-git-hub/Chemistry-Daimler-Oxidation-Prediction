@@ -1,125 +1,23 @@
 {
-  "baseline_mse": 0.0030962247401475906,
+  "baseline_mse": 0.001767112873494625,
   "top_context_factors": [
     {
       "feature": "ctx_condition::Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.19691382348537445,
-      "delta_mse": 0.19381759874522686
+      "baseline_mse": 0.001767112873494625,
+      "permuted_mse": 0.18770451843738556,
+      "delta_mse": 0.18593740556389093
     },
     {
       "feature": "ctx_condition::Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.047372885048389435,
-      "delta_mse": 0.044276660308241844
-    },
-    {
-      "feature": "ctx_wstd::Масса гидрофобного хвоста, г/моль",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.045084234327077866,
-      "delta_mse": 0.041988009586930275
-    },
-    {
-      "feature": "ctx_wmean::Динамическая вязкость CCS -25°C, ASTM D5293",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.04107160121202469,
-      "delta_mse": 0.0379753764718771
-    },
-    {
-      "feature": "ctx_mass_mean",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.03887227177619934,
-      "delta_mse": 0.03577604703605175
+      "baseline_mse": 0.001767112873494625,
+      "permuted_mse": 0.0673951506614685,
+      "delta_mse": 0.06562803778797388
     },
     {
       "feature": "ctx_condition::Время испытания | - Daimler Oxidation Test (DOT), ч",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.03592006489634514,
-      "delta_mse": 0.03282384015619755
-    },
-    {
-      "feature": "ctx_wmean::Масса гидрофобного хвоста, г/моль",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.027889257296919823,
-      "delta_mse": 0.024793032556772232
-    },
-    {
-      "feature": "ctx_num_components",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.025262482464313507,
-      "delta_mse": 0.022166257724165916
-    },
-    {
-      "feature": "ctx_wstd::Динамическая вязкость CCS -35°C, ASTM D5293",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.01950363628566265,
-      "delta_mse": 0.01640741154551506
-    },
-    {
-      "feature": "ctx_wstd::Энергия диссоциации связи Х-Н, ккал/моль",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.019453654065728188,
-      "delta_mse": 0.016357429325580597
-    },
-    {
-      "feature": "ctx_wstd::Кинематическая вязкость, при 40°C, ASTM D445",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.01890968717634678,
-      "delta_mse": 0.015813462436199188
-    },
-    {
-      "feature": "ctx_mass_std",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.018515098839998245,
-      "delta_mse": 0.015418874099850655
-    },
-    {
-      "feature": "ctx_wstd::Плотность при 15°С, ASTM D4052",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.01681436598300934,
-      "delta_mse": 0.013718141242861748
-    },
-    {
-      "feature": "ctx_wmean::Щелочное число, ГОСТ 11362",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.01619766652584076,
-      "delta_mse": 0.013101441785693169
-    },
-    {
-      "feature": "ctx_wstd::Кинематическая вязкость, при 100°C, ASTM D445",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.01473729033023119,
-      "delta_mse": 0.011641065590083599
-    },
-    {
-      "feature": "ctx_wmean::Кинематическая вязкость, при 40°C, ASTM D445",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.013946819119155407,
-      "delta_mse": 0.010850594379007816
-    },
-    {
-      "feature": "ctx_wstd::Динамическая вязкость CCS -20°C, ASTM D5293",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.0138933677226305,
-      "delta_mse": 0.01079714298248291
-    },
-    {
-      "feature": "ctx_wmean::Плотность при 20°С, ASTM D4052",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.013672497123479843,
-      "delta_mse": 0.010576272383332253
-    },
-    {
-      "feature": "ctx_mass_sum",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.012974663637578487,
-      "delta_mse": 0.009878438897430897
-    },
-    {
-      "feature": "ctx_wmean::Плотность при 15°С, ASTM D4052",
-      "baseline_mse": 0.0030962247401475906,
-      "permuted_mse": 0.012743547558784485,
-      "delta_mse": 0.009647322818636894
+      "baseline_mse": 0.001767112873494625,
+      "permuted_mse": 0.06595616601407528,
+      "delta_mse": 0.06418905314058065
     }
   ]
 }

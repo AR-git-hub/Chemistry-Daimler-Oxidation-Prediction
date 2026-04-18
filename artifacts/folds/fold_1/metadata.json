@@ -1,8 +1,10 @@
 {
   "fold": 1,
+  "separate_target_models": true,
   "input_dim": 85,
   "context_dim": 32,
   "output_dim": 2,
+  "model_output_dim": 1,
   "hidden_dim": 128,
   "dropout": 0.0,
   "use_heterogeneity": false,
@@ -140,6 +142,10 @@
     "Кинематическая вязкость, при 100°C, ASTM D445",
     "Щелочное число, ГОСТ 11362",
     "Энергия диссоциации связи Х-Н, ккал/моль"
+  ],
+  "target_columns": [
+    "Delta Kin. Viscosity KV100 - relative | - Daimler Oxidation Test (DOT), %",
+    "Oxidation EOT | DIN 51453 Daimler Oxidation Test (DOT), A/cm"
   ],
   "x_mean": [
     43.77164077758789,
@@ -391,5 +397,6 @@
     208.70074462890625,
     35.920654296875
   ],
-  "model_path": "C:\\Users\\Aleksandr Riabkov\\Desktop\\Daimler Hack\\Chemistry-Daimler-Oxidation-Prediction\\artifacts\\folds\\fold_1\\model.pt"
+  "model_path_t0": "C:\\Users\\Aleksandr Riabkov\\Desktop\\Daimler Hack\\Chemistry-Daimler-Oxidation-Prediction\\artifacts\\folds\\fold_1\\model_t0.pt",
+  "model_path_t1": "C:\\Users\\Aleksandr Riabkov\\Desktop\\Daimler Hack\\Chemistry-Daimler-Oxidation-Prediction\\artifacts\\folds\\fold_1\\model_t1.pt"
 }

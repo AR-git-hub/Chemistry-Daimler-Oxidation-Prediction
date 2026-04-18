@@ -12,7 +12,7 @@ import torch
 from sklearn.model_selection import GroupKFold
 from torch.utils.data import DataLoader, Subset
 
-from dot.config import ARTIFACTS_DIR, SCENARIO_ID, TRAIN_PATH
+from dot.config import ARTIFACTS_DIR, SCENARIO_ID, TARGET_COLUMNS, TRAIN_PATH
 from dot.data import (
     apply_context_scaler,
     apply_feature_scaler,
@@ -24,15 +24,29 @@ from dot.data import (
 from dot.model import DeepSetsRegressor, ScenarioSetDataset, collate_train
 
 
-def _eval_mse(model: DeepSetsRegressor, loader: DataLoader, device: str) -> float:
-    model.eval()
+def _eval_mse(models: DeepSetsRegressor | list[DeepSetsRegressor], loader: DataLoader, device: str) -> float:
+    if isinstance(models, DeepSetsRegressor):
+        models = [models]
+    for m in models:
+        m.eval()
     losses = []
     criterion = torch.nn.MSELoss()
     with torch.no_grad():
         for xb, mask, ctx, yb in loader:
-            pred = model(xb.to(device), mask.to(device), ctx.to(device))
-            loss = criterion(pred, yb.to(device))
-            losses.append(loss.item())
+            xb = xb.to(device)
+            mask = mask.to(device)
+            ctx = ctx.to(device)
+            yb = yb.to(device)
+            if len(models) == 1:
+                pred = models[0](xb, mask, ctx)
+                loss = criterion(pred, yb)
+                losses.append(loss.item())
+            else:
+                acc = 0.0
+                for ti, m in enumerate(models):
+                    pred = m(xb, mask, ctx)
+                    acc += criterion(pred, yb[:, ti : ti + 1]).item()
+                losses.append(acc / len(models))
     return float(np.mean(losses))
 
 
@@ -60,16 +74,42 @@ def run_factor_analysis(args: argparse.Namespace) -> Path:
     val_subset = Subset(dataset, val_idx.tolist())
     val_loader = DataLoader(val_subset, batch_size=64, shuffle=False, collate_fn=collate_train)
 
-    model = DeepSetsRegressor(
-        input_dim=int(metadata["input_dim"]),
-        context_dim=int(metadata["context_dim"]),
-        hidden_dim=128,
-        output_dim=int(metadata["output_dim"]),
-    )
-    model.load_state_dict(torch.load(args.model_path, map_location=torch.device(args.device)))
-    model.to(args.device)
+    hidden_dim = int(metadata.get("hidden_dim", 128))
+    dropout = float(metadata.get("dropout", 0.0))
+    hetero = bool(metadata.get("use_heterogeneity", False))
 
-    baseline_mse = _eval_mse(model, val_loader, args.device)
+    if metadata.get("separate_target_models"):
+        models: list[DeepSetsRegressor] = []
+        for ti in range(len(TARGET_COLUMNS)):
+            mp = metadata.get(f"model_path_t{ti}")
+            if not mp:
+                raise ValueError(f"metadata missing model_path_t{ti} for factor analysis.")
+            m = DeepSetsRegressor(
+                input_dim=int(metadata["input_dim"]),
+                context_dim=int(metadata["context_dim"]),
+                hidden_dim=hidden_dim,
+                output_dim=1,
+                dropout=dropout,
+                use_heterogeneity=hetero,
+            )
+            m.load_state_dict(torch.load(mp, map_location=torch.device(args.device)))
+            m.to(args.device)
+            models.append(m)
+        model_or_list: DeepSetsRegressor | list[DeepSetsRegressor] = models
+    else:
+        m = DeepSetsRegressor(
+            input_dim=int(metadata["input_dim"]),
+            context_dim=int(metadata["context_dim"]),
+            hidden_dim=hidden_dim,
+            output_dim=int(metadata["output_dim"]),
+            dropout=dropout,
+            use_heterogeneity=hetero,
+        )
+        m.load_state_dict(torch.load(args.model_path, map_location=torch.device(args.device)))
+        m.to(args.device)
+        model_or_list = m
+
+    baseline_mse = _eval_mse(model_or_list, val_loader, args.device)
 
     val_context = c_scaled[val_idx].copy()
     rng = np.random.default_rng(args.seed)
@@ -83,7 +123,7 @@ def run_factor_analysis(args: argparse.Namespace) -> Path:
             y_norm[val_idx],
         )
         perm_loader = DataLoader(perm_dataset, batch_size=64, shuffle=False, collate_fn=collate_train)
-        perm_mse = _eval_mse(model, perm_loader, args.device)
+        perm_mse = _eval_mse(model_or_list, perm_loader, args.device)
         impacts.append(
             {
                 "feature": feat_name,

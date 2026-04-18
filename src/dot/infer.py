@@ -24,7 +24,7 @@ def load_metadata(path: Path) -> dict:
 def _predict_with_artifact(
     test_df: pd.DataFrame,
     artifact_meta: dict,
-    model_path: Path,
+    model_path: Path | None,
     batch_size: int,
     device: str,
 ) -> tuple[list[str], np.ndarray]:
@@ -57,31 +57,62 @@ def _predict_with_artifact(
     scaled = apply_feature_scaler(scenario_test.components, scaler)
     scaled_context = apply_context_scaler(scenario_test.context, context_scaler)
 
-    model = DeepSetsRegressor(
-        input_dim=int(artifact_meta["input_dim"]),
-        context_dim=int(artifact_meta["context_dim"]),
-        hidden_dim=int(artifact_meta.get("hidden_dim", 128)),
-        output_dim=int(artifact_meta["output_dim"]),
-        dropout=float(artifact_meta.get("dropout", 0.0)),
-        use_heterogeneity=bool(artifact_meta.get("use_heterogeneity", False)),
-    )
-    state_dict = torch.load(model_path, map_location=torch.device(device))
-    model.load_state_dict(state_dict)
-    model.to(device)
-    model.eval()
-
     ds = ScenarioSetDataset(scaled, scaled_context, targets=None)
     loader = DataLoader(ds, batch_size=batch_size, shuffle=False, collate_fn=collate_infer)
 
-    preds = []
-    with torch.no_grad():
-        for xb, mask, ctx in loader:
-            xb = xb.to(device)
-            mask = mask.to(device)
-            ctx = ctx.to(device)
-            pred_norm = model(xb, mask, ctx).cpu().numpy()
-            preds.append(pred_norm)
-    pred_norm = np.vstack(preds)
+    separate = bool(artifact_meta.get("separate_target_models", False))
+    if separate:
+        pred_blocks = []
+        for ti in range(len(TARGET_COLUMNS)):
+            mp = artifact_meta.get(f"model_path_t{ti}")
+            if not mp:
+                raise ValueError(f"Missing model_path_t{ti} for per-target model inference.")
+            model = DeepSetsRegressor(
+                input_dim=int(artifact_meta["input_dim"]),
+                context_dim=int(artifact_meta["context_dim"]),
+                hidden_dim=int(artifact_meta.get("hidden_dim", 128)),
+                output_dim=1,
+                dropout=float(artifact_meta.get("dropout", 0.0)),
+                use_heterogeneity=bool(artifact_meta.get("use_heterogeneity", False)),
+            )
+            state_dict = torch.load(mp, map_location=torch.device(device))
+            model.load_state_dict(state_dict)
+            model.to(device)
+            model.eval()
+            preds_t = []
+            with torch.no_grad():
+                for xb, mask, ctx in loader:
+                    xb = xb.to(device)
+                    mask = mask.to(device)
+                    ctx = ctx.to(device)
+                    pred_norm = model(xb, mask, ctx).cpu().numpy()
+                    preds_t.append(pred_norm)
+            pred_blocks.append(np.vstack(preds_t))
+        pred_norm = np.hstack(pred_blocks)
+    else:
+        if model_path is None:
+            raise ValueError("model_path is required for legacy joint-output checkpoints.")
+        model = DeepSetsRegressor(
+            input_dim=int(artifact_meta["input_dim"]),
+            context_dim=int(artifact_meta["context_dim"]),
+            hidden_dim=int(artifact_meta.get("hidden_dim", 128)),
+            output_dim=int(artifact_meta["output_dim"]),
+            dropout=float(artifact_meta.get("dropout", 0.0)),
+            use_heterogeneity=bool(artifact_meta.get("use_heterogeneity", False)),
+        )
+        state_dict = torch.load(model_path, map_location=torch.device(device))
+        model.load_state_dict(state_dict)
+        model.to(device)
+        model.eval()
+        preds = []
+        with torch.no_grad():
+            for xb, mask, ctx in loader:
+                xb = xb.to(device)
+                mask = mask.to(device)
+                ctx = ctx.to(device)
+                pred_norm = model(xb, mask, ctx).cpu().numpy()
+                preds.append(pred_norm)
+        pred_norm = np.vstack(preds)
 
     y_mean = np.array(artifact_meta["y_mean"], dtype=np.float32)
     y_std = np.array(artifact_meta["y_std"], dtype=np.float32)
@@ -98,10 +129,19 @@ def _infer_fold_ensemble(args: argparse.Namespace, test_df: pd.DataFrame) -> tup
     base_ids = None
     for fold_dir in fold_dirs:
         fold_meta_path = fold_dir / "metadata.json"
-        fold_model_path = fold_dir / "model.pt"
-        if not fold_meta_path.exists() or not fold_model_path.exists():
-            raise ValueError(f"Missing fold artifacts in {fold_dir}")
+        if not fold_meta_path.exists():
+            raise ValueError(f"Missing fold metadata in {fold_dir}")
         fold_meta = load_metadata(fold_meta_path)
+        if fold_meta.get("separate_target_models"):
+            for ti in range(len(TARGET_COLUMNS)):
+                mp = fold_meta.get(f"model_path_t{ti}")
+                if not mp or not Path(mp).is_file():
+                    raise ValueError(f"Missing per-target model file for t{ti} in {fold_dir}")
+            fold_model_path = None
+        else:
+            fold_model_path = fold_dir / "model.pt"
+            if not fold_model_path.is_file():
+                raise ValueError(f"Missing fold model in {fold_dir}")
         ids, pred = _predict_with_artifact(
             test_df=test_df,
             artifact_meta=fold_meta,
@@ -126,10 +166,13 @@ def infer(args: argparse.Namespace) -> None:
         scenario_ids, pred = _infer_fold_ensemble(args, test_df)
         print(f"Using fold ensemble inference from: {args.folds_dir}")
     else:
+        mp: Path | None = args.model_path
+        if metadata.get("separate_target_models"):
+            mp = None
         scenario_ids, pred = _predict_with_artifact(
             test_df=test_df,
             artifact_meta=metadata,
-            model_path=args.model_path,
+            model_path=mp,
             batch_size=args.batch_size,
             device=args.device,
         )

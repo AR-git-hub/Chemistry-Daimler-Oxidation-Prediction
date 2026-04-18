@@ -41,8 +41,8 @@ python scripts/train.py --epochs 200 --final-epochs 140 --batch-size 32 --input-
 ```
 
 This writes:
-- `artifacts/deepsets_model.pt`
-- `artifacts/metadata.json`
+- `artifacts/deepsets_model_t0.pt` and `artifacts/deepsets_model_t1.pt` (one Deep Sets per DOT target)
+- `artifacts/metadata.json` (lists `model_path_t0` / `model_path_t1` and `separate_target_models: true`)
 
 ### 3) Run inference
 
