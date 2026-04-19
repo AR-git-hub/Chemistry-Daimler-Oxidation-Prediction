@@ -1,0 +1,1620 @@
+{
+  "target_columns": [
+    "Delta Kin. Viscosity KV100 - relative | - Daimler Oxidation Test (DOT), %",
+    "Oxidation EOT | DIN 51453 Daimler Oxidation Test (DOT), A/cm"
+  ],
+  "train_seed": 42,
+  "feature_blocklist": [
+    "Кинематическая вязкость, при -30⁰С | ASTM D445",
+    "Наименование партии"
+  ],
+  "separate_target_models": true,
+  "feature_selection": false,
+  "component_top_k": 3,
+  "component_min_rows_per_component": 12,
+  "model_output_dim": 1,
+  "hidden_dim": 128,
+  "dropout": 0.0,
+  "use_heterogeneity": false,
+  "loss_type": "hybrid",
+  "hybrid_mse_weight": 0.92,
+  "optimizer": "adam",
+  "weight_decay": 2e-05,
+  "cosine_scheduler": false,
+  "ema_decay": 0.998,
+  "grad_clip_norm": 0.0,
+  "final_epochs_from_cv": true,
+  "final_epochs_cap": 140,
+  "final_holdout_fraction": 0.12,
+  "final_fulldata_min_frac_of_cv_cap": 0.88,
+  "final_epochs_effective_t0": 140,
+  "final_epochs_effective_t1": 140,
+  "final_holdout_probe_best_epoch_t0": 131.0,
+  "final_holdout_probe_epochs_run_t0": 151.0,
+  "final_holdout_probe_val_mse_t0": 0.36955153942108154,
+  "final_holdout_probe_train_mse_t0": 0.3006025947630405,
+  "final_holdout_probe_best_epoch_t1": 181.0,
+  "final_holdout_probe_epochs_run_t1": 200.0,
+  "final_holdout_probe_val_mse_t1": 0.46227583289146423,
+  "final_holdout_probe_train_mse_t1": 0.06594961956143379,
+  "validation_metrics": [
+    {
+      "fold": 1,
+      "val_mse_normalized": 0.19500320544466376,
+      "val_mae_normalized": 0.3308521918952465,
+      "train_mse_normalized": 0.1812100725248456,
+      "train_mae_normalized": 0.2024532750248909,
+      "val_mse_normalized_t0": 0.07240353804081678,
+      "val_mse_normalized_t1": 0.31760287284851074,
+      "val_mae_normalized_t0": 0.17534541338682175,
+      "val_mae_normalized_t1": 0.48635897040367126,
+      "train_mse_normalized_t0": 0.30441521368920804,
+      "train_mse_normalized_t1": 0.05800493136048317,
+      "train_mae_normalized_t0": 0.2199313759803772,
+      "train_mae_normalized_t1": 0.1849751740694046,
+      "best_epoch_t0": 97,
+      "best_epoch_t1": 200,
+      "epochs_run_t0": 117,
+      "epochs_run_t1": 200
+    },
+    {
+      "fold": 2,
+      "val_mse_normalized": 0.3377917464822531,
+      "val_mae_normalized": 0.4697536565363407,
+      "train_mse_normalized": 0.4407627223059535,
+      "train_mae_normalized": 0.4378677412867546,
+      "val_mse_normalized_t0": 0.0639304630458355,
+      "val_mse_normalized_t1": 0.6116530299186707,
+      "val_mae_normalized_t0": 0.20641440898180008,
+      "val_mae_normalized_t1": 0.7330929040908813,
+      "train_mse_normalized_t0": 0.22172983847558497,
+      "train_mse_normalized_t1": 0.659795606136322,
+      "train_mae_normalized_t0": 0.17474169433116912,
+      "train_mae_normalized_t1": 0.70099378824234,
+      "best_epoch_t0": 133,
+      "best_epoch_t1": 29,
+      "epochs_run_t0": 153,
+      "epochs_run_t1": 49
+    },
+    {
+      "fold": 3,
+      "val_mse_normalized": 0.6063656139776867,
+      "val_mae_normalized": 0.27624003402888775,
+      "train_mse_normalized": 0.06680614864453674,
+      "train_mae_normalized": 0.16284771412611007,
+      "val_mse_normalized_t0": 1.0263550344170653,
+      "val_mse_normalized_t1": 0.18637619353830814,
+      "val_mae_normalized_t0": 0.22526956722140312,
+      "val_mae_normalized_t1": 0.3272105008363724,
+      "train_mse_normalized_t0": 0.059765384159982206,
+      "train_mse_normalized_t1": 0.07384691312909127,
+      "train_mae_normalized_t0": 0.10784430503845215,
+      "train_mae_normalized_t1": 0.217851123213768,
+      "best_epoch_t0": 200,
+      "best_epoch_t1": 200,
+      "epochs_run_t0": 200,
+      "epochs_run_t1": 200
+    },
+    {
+      "fold": 4,
+      "val_mse_normalized": 0.19849116168916225,
+      "val_mae_normalized": 0.2366446629166603,
+      "train_mse_normalized": 0.18339138031005858,
+      "train_mae_normalized": 0.23204107359051704,
+      "val_mse_normalized_t0": 0.28867218689993024,
+      "val_mse_normalized_t1": 0.10831013647839427,
+      "val_mae_normalized_t0": 0.24931882321834564,
+      "val_mae_normalized_t1": 0.22397050261497498,
+      "train_mse_normalized_t0": 0.2298618584871292,
+      "train_mse_normalized_t1": 0.13692090213298796,
+      "train_mae_normalized_t0": 0.1565165713429451,
+      "train_mae_normalized_t1": 0.30756557583808897,
+      "best_epoch_t0": 150,
+      "best_epoch_t1": 135,
+      "epochs_run_t0": 170,
+      "epochs_run_t1": 155
+    },
+    {
+      "fold": 5,
+      "val_mse_normalized": 0.14539115759544075,
+      "val_mae_normalized": 0.2353680655360222,
+      "train_mse_normalized": 0.20895025394856928,
+      "train_mae_normalized": 0.22482185438275337,
+      "val_mse_normalized_t0": 0.06605189526453614,
+      "val_mse_normalized_t1": 0.22473041992634535,
+      "val_mae_normalized_t0": 0.14954669773578644,
+      "val_mae_normalized_t1": 0.32118943333625793,
+      "train_mse_normalized_t0": 0.3416921854019165,
+      "train_mse_normalized_t1": 0.0762083224952221,
+      "train_mae_normalized_t0": 0.21796420961618423,
+      "train_mae_normalized_t1": 0.2316794991493225,
+      "best_epoch_t0": 89,
+      "best_epoch_t1": 181,
+      "epochs_run_t0": 109,
+      "epochs_run_t1": 200
+    }
+  ],
+  "cv_mean_mse_normalized": 0.2966085770378413,
+  "cv_mean_mae_normalized": 0.3097717221826315,
+  "input_noise_std": 0.01,
+  "fold_ensemble_dir": "artifacts\\exp_component_k3\\folds",
+  "fold_count": 5,
+  "model_path_t0": "C:\\Users\\Aleksandr Riabkov\\Desktop\\Daimler Hack\\Chemistry-Daimler-Oxidation-Prediction\\artifacts\\exp_component_k3\\deepsets_model_t0.pt",
+  "model_path_t1": "C:\\Users\\Aleksandr Riabkov\\Desktop\\Daimler Hack\\Chemistry-Daimler-Oxidation-Prediction\\artifacts\\exp_component_k3\\deepsets_model_t1.pt",
+  "feature_columns_t0": [
+    "Время испытания | - Daimler Oxidation Test (DOT), ч",
+    "Деэм.вода | ASTM D1401",
+    "Динамическая вязкость CCS -15°C, ASTM D5293",
+    "Динамическая вязкость CCS -20°C, ASTM D5293",
+    "Динамическая вязкость CCS -25°C, ASTM D5293",
+    "Динамическая вязкость CCS -30°C, ASTM D5293",
+    "Динамическая вязкость CCS -35°C, ASTM D5293",
+    "Дозировка катализатора, категория",
+    "Индекс вязкости, ГОСТ 25371",
+    "Испаряемость по NOACK, ASTM D5800",
+    "Кинематическая вязкость, при 100°C, ASTM D445",
+    "Кинематическая вязкость, при 40°C, ASTM D445",
+    "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+    "Массовая доля кальция, ASTM D6481",
+    "Массовая доля серы, ASTM D6481",
+    "Массовая доля, %",
+    "Температура застывания, ГОСТ 20287, метод Б",
+    "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+    "Щелочное число, ASTM D2896",
+    "Щелочное число, ГОСТ 11362"
+  ],
+  "interaction_feature_columns_t0": [
+    "Динамическая вязкость CCS -35°C, ASTM D5293",
+    "Динамическая вязкость CCS -30°C, ASTM D5293",
+    "Динамическая вязкость CCS -25°C, ASTM D5293",
+    "Динамическая вязкость CCS -20°C, ASTM D5293",
+    "Динамическая вязкость CCS -15°C, ASTM D5293",
+    "Кинематическая вязкость, при 40°C, ASTM D445",
+    "Кинематическая вязкость, при 100°C, ASTM D445",
+    "Щелочное число, ГОСТ 11362",
+    "Щелочное число, ASTM D2896",
+    "Индекс вязкости, ГОСТ 25371",
+    "Массовая доля, %",
+    "Испаряемость по NOACK, ASTM D5800"
+  ],
+  "context_columns_t0": [
+    "ctx_num_components",
+    "ctx_mass_sum",
+    "ctx_mass_mean",
+    "ctx_mass_std",
+    "ctx_condition::Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+    "ctx_condition::Время испытания | - Daimler Oxidation Test (DOT), ч",
+    "ctx_condition::Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+    "ctx_condition::Дозировка катализатора, категория",
+    "ctx_wmean::Динамическая вязкость CCS -35°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -35°C, ASTM D5293",
+    "ctx_wmean::Динамическая вязкость CCS -30°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -30°C, ASTM D5293",
+    "ctx_wmean::Динамическая вязкость CCS -25°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -25°C, ASTM D5293",
+    "ctx_wmean::Динамическая вязкость CCS -20°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -20°C, ASTM D5293",
+    "ctx_wmean::Динамическая вязкость CCS -15°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -15°C, ASTM D5293",
+    "ctx_wmean::Кинематическая вязкость, при 40°C, ASTM D445",
+    "ctx_wstd::Кинематическая вязкость, при 40°C, ASTM D445",
+    "ctx_wmean::Кинематическая вязкость, при 100°C, ASTM D445",
+    "ctx_wstd::Кинематическая вязкость, при 100°C, ASTM D445",
+    "ctx_wmean::Щелочное число, ГОСТ 11362",
+    "ctx_wstd::Щелочное число, ГОСТ 11362",
+    "ctx_wmean::Щелочное число, ASTM D2896",
+    "ctx_wstd::Щелочное число, ASTM D2896",
+    "ctx_wmean::Индекс вязкости, ГОСТ 25371",
+    "ctx_wstd::Индекс вязкости, ГОСТ 25371",
+    "ctx_wmean::Массовая доля, %",
+    "ctx_wstd::Массовая доля, %",
+    "ctx_wmean::Испаряемость по NOACK, ASTM D5800",
+    "ctx_wstd::Испаряемость по NOACK, ASTM D5800"
+  ],
+  "x_mean_t0": [
+    172.9291534423828,
+    12.20978832244873,
+    288.33233642578125,
+    530.2836303710938,
+    1040.152099609375,
+    2283.94384765625,
+    4064.106201171875,
+    1.0605381727218628,
+    34.16378402709961,
+    7.8599934577941895,
+    93.97786712646484,
+    161.2617645263672,
+    2.0434978008270264,
+    1.6546953916549683,
+    1.4459353685379028,
+    44.02094268798828,
+    -8.801971435546875,
+    158.24664306640625,
+    50.53121566772461,
+    56.65359878540039
+  ],
+  "x_std_t0": [
+    14.570608139038086,
+    18.32261085510254,
+    861.3787841796875,
+    1753.3709716796875,
+    3518.00146484375,
+    7568.4501953125,
+    14137.7744140625,
+    0.23848113417625427,
+    51.52241516113281,
+    20.42654800415039,
+    143.06509399414062,
+    572.7439575195312,
+    3.0154149532318115,
+    4.358616352081299,
+    4.236258029937744,
+    29.17167091369629,
+    16.38022804260254,
+    3.7598507404327393,
+    112.14163970947266,
+    131.4488525390625
+  ],
+  "ctx_mean_t0": [
+    13.353293418884277,
+    587.8245239257812,
+    43.99981689453125,
+    28.158388137817383,
+    158.25149536132812,
+    172.88623046875,
+    1.970059871673584,
+    1.0538922548294067,
+    5638.76318359375,
+    11132.658203125,
+    3108.65673828125,
+    6290.51708984375,
+    1423.359619140625,
+    2824.88037109375,
+    725.3062133789062,
+    1425.759033203125,
+    386.695068359375,
+    735.429443359375,
+    128.15158081054688,
+    457.72235107421875,
+    81.48412322998047,
+    127.51493835449219,
+    51.95980453491211,
+    118.69384002685547,
+    44.48402786254883,
+    101.0735855102539,
+    43.65163040161133,
+    52.54676818847656,
+    62.56692123413086,
+    24.62316131591797,
+    11.891746520996094,
+    22.29616355895996
+  ],
+  "ctx_std_t0": [
+    2.8158609867095947,
+    144.91064453125,
+    6.272068023681641,
+    4.150578022003174,
+    3.7603635787963867,
+    14.514251708984375,
+    3.0118024349212646,
+    0.22580434381961823,
+    6215.3701171875,
+    11841.919921875,
+    3153.61328125,
+    6076.646484375,
+    1487.96484375,
+    2895.147216796875,
+    738.2078857421875,
+    1428.5692138671875,
+    352.289306640625,
+    649.2234497070312,
+    71.45594787597656,
+    208.6007080078125,
+    33.64794921875,
+    41.43515396118164,
+    26.01991081237793,
+    34.03718566894531,
+    19.166656494140625,
+    25.326416015625,
+    12.742145538330078,
+    4.536510944366455,
+    7.0147175788879395,
+    3.5846405029296875,
+    5.83943510055542,
+    11.162325859069824
+  ],
+  "input_dim_t0": 20,
+  "context_dim_t0": 32,
+  "feature_columns_t1": [
+    "Время испытания | - Daimler Oxidation Test (DOT), ч",
+    "Деэм.масло | ASTM D1401",
+    "Динамическая вязкость CCS -20°C, ASTM D5293",
+    "Динамическая вязкость CCS -30°C, ASTM D5293",
+    "Динамическая вязкость CCS -35°C, ASTM D5293",
+    "Дозировка катализатора, категория",
+    "Индекс вязкости, ГОСТ 25371",
+    "Испаряемость по NOACK, ASTM D5800",
+    "Кинематическая вязкость, при 100°C, ASTM D445",
+    "Кинематическая вязкость, при 40°C, ASTM D445",
+    "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+    "Массовая доля кальция, ASTM D6481",
+    "Массовая доля серы, ASTM D6481",
+    "Массовая доля фосфора, ASTM D6481",
+    "Массовая доля цинка, ASTM D6481",
+    "Массовая доля, %",
+    "Температура застывания, ГОСТ 20287, метод Б",
+    "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+    "Щелочное число, ASTM D2896"
+  ],
+  "interaction_feature_columns_t1": [
+    "Динамическая вязкость CCS -35°C, ASTM D5293",
+    "Динамическая вязкость CCS -30°C, ASTM D5293",
+    "Динамическая вязкость CCS -20°C, ASTM D5293",
+    "Кинематическая вязкость, при 40°C, ASTM D445",
+    "Кинематическая вязкость, при 100°C, ASTM D445",
+    "Щелочное число, ASTM D2896",
+    "Индекс вязкости, ГОСТ 25371",
+    "Массовая доля, %",
+    "Испаряемость по NOACK, ASTM D5800",
+    "Деэм.масло | ASTM D1401",
+    "Температура застывания, ГОСТ 20287, метод Б",
+    "Время испытания | - Daimler Oxidation Test (DOT), ч"
+  ],
+  "context_columns_t1": [
+    "ctx_num_components",
+    "ctx_mass_sum",
+    "ctx_mass_mean",
+    "ctx_mass_std",
+    "ctx_condition::Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+    "ctx_condition::Время испытания | - Daimler Oxidation Test (DOT), ч",
+    "ctx_condition::Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+    "ctx_condition::Дозировка катализатора, категория",
+    "ctx_wmean::Динамическая вязкость CCS -35°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -35°C, ASTM D5293",
+    "ctx_wmean::Динамическая вязкость CCS -30°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -30°C, ASTM D5293",
+    "ctx_wmean::Динамическая вязкость CCS -20°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -20°C, ASTM D5293",
+    "ctx_wmean::Кинематическая вязкость, при 40°C, ASTM D445",
+    "ctx_wstd::Кинематическая вязкость, при 40°C, ASTM D445",
+    "ctx_wmean::Кинематическая вязкость, при 100°C, ASTM D445",
+    "ctx_wstd::Кинематическая вязкость, при 100°C, ASTM D445",
+    "ctx_wmean::Щелочное число, ASTM D2896",
+    "ctx_wstd::Щелочное число, ASTM D2896",
+    "ctx_wmean::Индекс вязкости, ГОСТ 25371",
+    "ctx_wstd::Индекс вязкости, ГОСТ 25371",
+    "ctx_wmean::Массовая доля, %",
+    "ctx_wstd::Массовая доля, %",
+    "ctx_wmean::Испаряемость по NOACK, ASTM D5800",
+    "ctx_wstd::Испаряемость по NOACK, ASTM D5800",
+    "ctx_wmean::Деэм.масло | ASTM D1401",
+    "ctx_wstd::Деэм.масло | ASTM D1401",
+    "ctx_wmean::Температура застывания, ГОСТ 20287, метод Б",
+    "ctx_wstd::Температура застывания, ГОСТ 20287, метод Б",
+    "ctx_wmean::Время испытания | - Daimler Oxidation Test (DOT), ч",
+    "ctx_wstd::Время испытания | - Daimler Oxidation Test (DOT), ч"
+  ],
+  "x_mean_t1": [
+    172.9291534423828,
+    12.160355567932129,
+    530.2836303710938,
+    2283.94384765625,
+    4064.106201171875,
+    1.0605381727218628,
+    34.16378402709961,
+    7.8599934577941895,
+    93.97786712646484,
+    161.2617645263672,
+    2.0434978008270264,
+    1.6546953916549683,
+    1.4459353685379028,
+    0.633819043636322,
+    0.6648238301277161,
+    44.02094268798828,
+    -8.801971435546875,
+    158.24664306640625,
+    50.53121566772461
+  ],
+  "x_std_t1": [
+    14.570608139038086,
+    18.480825424194336,
+    1753.3709716796875,
+    7568.4501953125,
+    14137.7744140625,
+    0.23848113417625427,
+    51.52241516113281,
+    20.42654800415039,
+    143.06509399414062,
+    572.7439575195312,
+    3.0154149532318115,
+    4.358616352081299,
+    4.236258029937744,
+    2.1840951442718506,
+    2.3991458415985107,
+    29.17167091369629,
+    16.38022804260254,
+    3.7598507404327393,
+    112.14163970947266
+  ],
+  "ctx_mean_t1": [
+    13.353293418884277,
+    587.8245239257812,
+    43.99981689453125,
+    28.158388137817383,
+    158.25149536132812,
+    172.88623046875,
+    1.970059871673584,
+    1.0538922548294067,
+    5638.76318359375,
+    11132.658203125,
+    3108.65673828125,
+    6290.51708984375,
+    725.3062133789062,
+    1425.759033203125,
+    128.15158081054688,
+    457.72235107421875,
+    81.48412322998047,
+    127.51493835449219,
+    44.48402786254883,
+    101.0735855102539,
+    43.65163040161133,
+    52.54676818847656,
+    62.56692123413086,
+    24.62316131591797,
+    11.891746520996094,
+    22.29616355895996,
+    15.706657409667969,
+    19.087560653686523,
+    -12.312508583068848,
+    17.668874740600586,
+    172.88623046875,
+    8.86288944457192e-06
+  ],
+  "ctx_std_t1": [
+    2.8158609867095947,
+    144.91064453125,
+    6.272068023681641,
+    4.150578022003174,
+    3.7603635787963867,
+    14.514251708984375,
+    3.0118024349212646,
+    0.22580434381961823,
+    6215.3701171875,
+    11841.919921875,
+    3153.61328125,
+    6076.646484375,
+    738.2078857421875,
+    1428.5692138671875,
+    71.45594787597656,
+    208.6007080078125,
+    33.64794921875,
+    41.43515396118164,
+    19.166656494140625,
+    25.326416015625,
+    12.742145538330078,
+    4.536510944366455,
+    7.0147175788879395,
+    3.5846405029296875,
+    5.83943510055542,
+    11.162325859069824,
+    4.4044647216796875,
+    1.26361083984375,
+    4.716603755950928,
+    6.066265106201172,
+    14.514249801635742,
+    9.925320227921475e-06
+  ],
+  "input_dim_t1": 19,
+  "context_dim_t1": 32,
+  "component_feature_map_t0": {
+    "Антиоксидант_1": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_10": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_11": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_12": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_13": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_14": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_15": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_2": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_3": [
+      "Массовая доля, %",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Антиоксидант_4": [
+      "Массовая доля, %",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Антиоксидант_5": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_6": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_7": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_8": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_9": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антипенная_присадка_1": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антипенная_присадка_2": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антипенная_присадка_3": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Базовое_масло_1": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Базовое_масло_10": [
+      "Индекс вязкости, ГОСТ 25371",
+      "Динамическая вязкость CCS -35°C, ASTM D5293",
+      "Температура застывания, ГОСТ 20287, метод Б"
+    ],
+    "Базовое_масло_11": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Базовое_масло_13": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Базовое_масло_14": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Базовое_масло_16": [
+      "Динамическая вязкость CCS -30°C, ASTM D5293",
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Кинематическая вязкость, при 40°C, ASTM D445"
+    ],
+    "Базовое_масло_17": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Базовое_масло_2": [
+      "Динамическая вязкость CCS -35°C, ASTM D5293",
+      "Деэм.вода | ASTM D1401",
+      "Испаряемость по NOACK, ASTM D5800"
+    ],
+    "Базовое_масло_3": [
+      "Динамическая вязкость CCS -20°C, ASTM D5293",
+      "Динамическая вязкость CCS -25°C, ASTM D5293",
+      "Динамическая вязкость CCS -15°C, ASTM D5293"
+    ],
+    "Базовое_масло_4": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Массовая доля, %"
+    ],
+    "Базовое_масло_5": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Базовое_масло_6": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Кинематическая вязкость, при 100°C, ASTM D445"
+    ],
+    "Базовое_масло_7": [
+      "Массовая доля серы, ASTM D6481",
+      "Массовая доля, %",
+      "Динамическая вязкость CCS -25°C, ASTM D5293"
+    ],
+    "Базовое_масло_8": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Массовая доля, %"
+    ],
+    "Базовое_масло_9": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Массовая доля, %"
+    ],
+    "Депрессорная_присадка_1": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Депрессорная_присадка_2": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Депрессорная_присадка_3": [
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Детергент_1": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Щелочное число, ASTM D2896"
+    ],
+    "Детергент_10": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_11": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_12": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_13": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_14": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_16": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_17": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_18": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_19": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_2": [
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Массовая доля кальция, ASTM D6481",
+      "Щелочное число, ASTM D2896"
+    ],
+    "Детергент_20": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_21": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_22": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_23": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_3": [
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Щелочное число, ASTM D2896",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_4": [
+      "Массовая доля серы, ASTM D6481",
+      "Щелочное число, ГОСТ 11362",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_5": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Детергент_6": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_7": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_8": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Детергент_9": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_1": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_10": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_11": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_12": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_13": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_2": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_3": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_4": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_5": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_6": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_7": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_8": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_9": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Загуститель_1": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Загуститель_2": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Загуститель_3": [
+      "Массовая доля, %",
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Противоизносная_присадка_1": [
+      "Массовая доля, %",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Дозировка катализатора, категория"
+    ],
+    "Противоизносная_присадка_10": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_11": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_13": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_14": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_15": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_16": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_17": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_18": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_19": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_2": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_20": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_21": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_22": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_23": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_25": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_26": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_27": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_28": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_29": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_3": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_4": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_5": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_6": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_7": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_8": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Соединение_молибдена_1": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Соединение_молибдена_2": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Соединение_молибдена_5": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Соединение_молибдена_6": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ]
+  },
+  "component_feature_map_t1": {
+    "Антиоксидант_1": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Дозировка катализатора, категория",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Антиоксидант_10": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Антиоксидант_11": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Антиоксидант_12": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Антиоксидант_13": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Антиоксидант_14": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Антиоксидант_15": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Антиоксидант_2": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Антиоксидант_3": [
+      "Дозировка катализатора, категория",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Антиоксидант_4": [
+      "Массовая доля, %",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Антиоксидант_5": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_6": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_7": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Антиоксидант_8": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Антиоксидант_9": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Антипенная_присадка_1": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Антипенная_присадка_2": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Антипенная_присадка_3": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Базовое_масло_1": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Базовое_масло_10": [
+      "Индекс вязкости, ГОСТ 25371",
+      "Динамическая вязкость CCS -35°C, ASTM D5293",
+      "Температура застывания, ГОСТ 20287, метод Б"
+    ],
+    "Базовое_масло_11": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Базовое_масло_13": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Базовое_масло_14": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Базовое_масло_16": [
+      "Динамическая вязкость CCS -30°C, ASTM D5293",
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Кинематическая вязкость, при 40°C, ASTM D445"
+    ],
+    "Базовое_масло_17": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Базовое_масло_2": [
+      "Динамическая вязкость CCS -35°C, ASTM D5293",
+      "Деэм.масло | ASTM D1401",
+      "Испаряемость по NOACK, ASTM D5800"
+    ],
+    "Базовое_масло_3": [
+      "Динамическая вязкость CCS -30°C, ASTM D5293",
+      "Массовая доля цинка, ASTM D6481",
+      "Массовая доля серы, ASTM D6481"
+    ],
+    "Базовое_масло_4": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Массовая доля, %"
+    ],
+    "Базовое_масло_5": [
+      "Динамическая вязкость CCS -30°C, ASTM D5293",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Кинематическая вязкость, при 40°C, ASTM D445"
+    ],
+    "Базовое_масло_6": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Динамическая вязкость CCS -20°C, ASTM D5293"
+    ],
+    "Базовое_масло_7": [
+      "Массовая доля серы, ASTM D6481",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Дозировка катализатора, категория"
+    ],
+    "Базовое_масло_8": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Массовая доля, %"
+    ],
+    "Базовое_масло_9": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Депрессорная_присадка_1": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Дозировка катализатора, категория",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Депрессорная_присадка_2": [
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Массовая доля, %"
+    ],
+    "Депрессорная_присадка_3": [
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Детергент_1": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Массовая доля, %"
+    ],
+    "Детергент_10": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_11": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_12": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_13": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_14": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_16": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_17": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_18": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_19": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_2": [
+      "Массовая доля, %",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Дозировка катализатора, категория"
+    ],
+    "Детергент_20": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_21": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_22": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_23": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_3": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_4": [
+      "Массовая доля кальция, ASTM D6481",
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Щелочное число, ASTM D2896"
+    ],
+    "Детергент_5": [
+      "Массовая доля, %",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_6": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_7": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Детергент_8": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Детергент_9": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Дисперсант_1": [
+      "Дозировка катализатора, категория",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Кинематическая вязкость, при 100°C, ASTM D445"
+    ],
+    "Дисперсант_10": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Дисперсант_11": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Дисперсант_12": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Дисперсант_13": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Дисперсант_2": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Дисперсант_3": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Дисперсант_4": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Дисперсант_5": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Дисперсант_6": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Дисперсант_7": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Дисперсант_8": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Дисперсант_9": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Загуститель_1": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Загуститель_2": [
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Загуститель_3": [
+      "Массовая доля, %",
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C"
+    ],
+    "Противоизносная_присадка_1": [
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Массовая доля серы, ASTM D6481",
+      "Массовая доля фосфора, ASTM D6481"
+    ],
+    "Противоизносная_присадка_10": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_11": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_13": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_14": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_15": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_16": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_17": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_18": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_19": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_2": [
+      "Массовая доля, %",
+      "Кинематическая вязкость, при 100°C, ASTM D445",
+      "Массовая доля кальция, ASTM D6481"
+    ],
+    "Противоизносная_присадка_20": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_21": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_22": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_23": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_25": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_26": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_27": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_28": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_29": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_3": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_4": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_5": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_6": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Противоизносная_присадка_7": [
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Противоизносная_присадка_8": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Соединение_молибдена_1": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Соединение_молибдена_2": [
+      "Массовая доля, %",
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч"
+    ],
+    "Соединение_молибдена_5": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ],
+    "Соединение_молибдена_6": [
+      "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс"
+    ]
+  },
+  "output_dim": 2,
+  "feature_columns": [
+    "Время испытания | - Daimler Oxidation Test (DOT), ч",
+    "Деэм.вода | ASTM D1401",
+    "Динамическая вязкость CCS -15°C, ASTM D5293",
+    "Динамическая вязкость CCS -20°C, ASTM D5293",
+    "Динамическая вязкость CCS -25°C, ASTM D5293",
+    "Динамическая вязкость CCS -30°C, ASTM D5293",
+    "Динамическая вязкость CCS -35°C, ASTM D5293",
+    "Дозировка катализатора, категория",
+    "Индекс вязкости, ГОСТ 25371",
+    "Испаряемость по NOACK, ASTM D5800",
+    "Кинематическая вязкость, при 100°C, ASTM D445",
+    "Кинематическая вязкость, при 40°C, ASTM D445",
+    "Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+    "Массовая доля кальция, ASTM D6481",
+    "Массовая доля серы, ASTM D6481",
+    "Массовая доля, %",
+    "Температура застывания, ГОСТ 20287, метод Б",
+    "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+    "Щелочное число, ASTM D2896",
+    "Щелочное число, ГОСТ 11362"
+  ],
+  "context_columns": [
+    "ctx_num_components",
+    "ctx_mass_sum",
+    "ctx_mass_mean",
+    "ctx_mass_std",
+    "ctx_condition::Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+    "ctx_condition::Время испытания | - Daimler Oxidation Test (DOT), ч",
+    "ctx_condition::Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+    "ctx_condition::Дозировка катализатора, категория",
+    "ctx_wmean::Динамическая вязкость CCS -35°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -35°C, ASTM D5293",
+    "ctx_wmean::Динамическая вязкость CCS -30°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -30°C, ASTM D5293",
+    "ctx_wmean::Динамическая вязкость CCS -25°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -25°C, ASTM D5293",
+    "ctx_wmean::Динамическая вязкость CCS -20°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -20°C, ASTM D5293",
+    "ctx_wmean::Динамическая вязкость CCS -15°C, ASTM D5293",
+    "ctx_wstd::Динамическая вязкость CCS -15°C, ASTM D5293",
+    "ctx_wmean::Кинематическая вязкость, при 40°C, ASTM D445",
+    "ctx_wstd::Кинематическая вязкость, при 40°C, ASTM D445",
+    "ctx_wmean::Кинематическая вязкость, при 100°C, ASTM D445",
+    "ctx_wstd::Кинематическая вязкость, при 100°C, ASTM D445",
+    "ctx_wmean::Щелочное число, ГОСТ 11362",
+    "ctx_wstd::Щелочное число, ГОСТ 11362",
+    "ctx_wmean::Щелочное число, ASTM D2896",
+    "ctx_wstd::Щелочное число, ASTM D2896",
+    "ctx_wmean::Индекс вязкости, ГОСТ 25371",
+    "ctx_wstd::Индекс вязкости, ГОСТ 25371",
+    "ctx_wmean::Массовая доля, %",
+    "ctx_wstd::Массовая доля, %",
+    "ctx_wmean::Испаряемость по NOACK, ASTM D5800",
+    "ctx_wstd::Испаряемость по NOACK, ASTM D5800"
+  ],
+  "input_dim": 20,
+  "context_dim": 32,
+  "y_mean": [
+    58.32352828979492,
+    55.827545166015625
+  ],
+  "y_std": [
+    196.421875,
+    36.00294494628906
+  ]
+}

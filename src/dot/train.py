@@ -1,4 +1,4 @@
-"""Training pipeline for DOT Deep Sets baseline."""
+﻿"""Training pipeline for DOT Deep Sets baseline."""
 
 from __future__ import annotations
 
@@ -18,6 +18,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR
 from torch.utils.data import DataLoader
 
 from .config import ARTIFACTS_DIR, FEATURE_BLOCKLIST, SCENARIO_ID, TARGET_COLUMNS, TRAIN_PATH
+from .component_feature_selection import top_k_features_per_component_for_target
 from .feature_selection import select_component_features_for_target
 from .data import (
     apply_context_scaler,
@@ -27,7 +28,14 @@ from .data import (
     frame_to_scenario_sets,
     normalize_targets,
 )
-from .model import DeepSetsRegressor, ScenarioSetDataset, collate_train
+from .model import ScenarioSetDataset, collate_train
+from .set_sequence_models import _nhead_for_d_model, build_set_regressor
+
+
+def _encoder_rho_from_args(args: argparse.Namespace) -> tuple[int | None, int | None]:
+    enc = int(getattr(args, "encoder_hidden_dim", 0) or 0)
+    rho = int(getattr(args, "rho_hidden_dim", 0) or 0)
+    return (enc if enc > 0 else None, rho if rho > 0 else None)
 
 
 def set_seed(seed: int) -> None:
@@ -133,7 +141,7 @@ class _EmaTracker:
         model.load_state_dict({k: v.to(device) for k, v in backup.items()})
 
 
-def _evaluate(model: DeepSetsRegressor, loader: DataLoader, device: torch.device) -> Dict[str, float]:
+def _evaluate(model: nn.Module, loader: DataLoader, device: torch.device) -> Dict[str, float]:
     model.eval()
     losses = []
     mae_losses = []
@@ -163,6 +171,8 @@ def _train_fold(
     output_dim: int,
     target_column: str,
     hidden_dim: int,
+    encoder_hidden_dim: int | None,
+    rho_hidden_dim: int | None,
     dropout: float,
     use_heterogeneity: bool,
     epochs: int,
@@ -176,19 +186,29 @@ def _train_fold(
     use_cosine_scheduler: bool,
     ema_decay: float,
     grad_clip_norm: float,
+    architecture: str,
+    transformer_layers: int,
+    transformer_heads: int,
+    transformer_ffn_mult: int,
     device: torch.device,
-) -> Tuple[DeepSetsRegressor, Dict[str, float]]:
+) -> Tuple[nn.Module, Dict[str, float]]:
     """Train a single-output head (``output_dim`` is 1 for per-target models)."""
     train_loader = _build_loader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = _build_loader(val_dataset, batch_size=batch_size, shuffle=False)
 
-    model = DeepSetsRegressor(
+    model = build_set_regressor(
+        architecture,
         input_dim=input_dim,
         context_dim=context_dim,
         hidden_dim=hidden_dim,
         output_dim=output_dim,
         dropout=dropout,
         use_heterogeneity=use_heterogeneity,
+        encoder_hidden_dim=encoder_hidden_dim,
+        rho_hidden_dim=rho_hidden_dim,
+        transformer_layers=transformer_layers,
+        transformer_heads=transformer_heads,
+        transformer_ffn_mult=transformer_ffn_mult,
     ).to(device)
     optimizer = _build_optimizer(model, optimizer_name, lr, weight_decay)
     criterion = _build_criterion(loss_type, hybrid_mse_weight)
@@ -310,6 +330,7 @@ def _final_epochs_from_holdout_probe(
         y_one[ho_i],
     )
     probe_epochs = min(int(args.epochs), int(args.final_probe_max_epochs))
+    enc_h, rho_h = _encoder_rho_from_args(args)
     _, probe_m = _train_fold(
         train_dataset=train_ds_h,
         val_dataset=val_ds_h,
@@ -318,6 +339,8 @@ def _final_epochs_from_holdout_probe(
         output_dim=1,
         target_column=target_column,
         hidden_dim=args.hidden_dim,
+        encoder_hidden_dim=enc_h,
+        rho_hidden_dim=rho_h,
         dropout=args.dropout,
         use_heterogeneity=args.use_heterogeneity,
         epochs=probe_epochs,
@@ -331,6 +354,10 @@ def _final_epochs_from_holdout_probe(
         use_cosine_scheduler=args.cosine_scheduler,
         ema_decay=args.ema_decay,
         grad_clip_norm=args.grad_clip_norm,
+        architecture=str(args.architecture),
+        transformer_layers=int(args.transformer_layers),
+        transformer_heads=int(args.transformer_heads),
+        transformer_ffn_mult=int(args.transformer_ffn_mult),
         device=device,
     )
     ho_best = int(probe_m["best_epoch"])
@@ -390,12 +417,14 @@ def _build_fold_datasets_for_target(
         is_train=True,
         feature_columns=feature_columns,
         interaction_feature_columns=None,
+        mass_interaction_k=0,
     )
     fold_val = frame_to_scenario_sets(
         val_fold_df,
         is_train=True,
         feature_columns=feature_columns,
         interaction_feature_columns=fold_train.interaction_feature_columns,
+        mass_interaction_k=0,
     )
     if fold_train.targets is None or fold_val.targets is None:
         raise ValueError("Fold targets are missing.")
@@ -422,6 +451,10 @@ def _build_fold_datasets_for_target(
 
 
 def train(args: argparse.Namespace) -> None:
+    if bool(args.feature_selection) and int(args.component_top_k) > 0:
+        raise ValueError("Use either --feature-selection or --component-top-k, not both.")
+    if int(args.mass_interaction_k) > 0 and (bool(args.feature_selection) or int(args.component_top_k) > 0):
+        raise ValueError("Use --mass-interaction-k only without --feature-selection and --component-top-k.")
     set_seed(args.seed)
     out_dir = Path(args.artifacts_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -431,6 +464,13 @@ def train(args: argparse.Namespace) -> None:
     folds_dir.mkdir(parents=True, exist_ok=True)
 
     raw_train = pd.read_csv(args.train_path)
+    enc_h, rho_h = _encoder_rho_from_args(args)
+    arch_lc = str(args.architecture).lower().strip()
+    eff_nhead = (
+        _nhead_for_d_model(int(args.hidden_dim), int(args.transformer_heads))
+        if arch_lc not in ("deepsets", "deep_sets", "deepset")
+        else None
+    )
     scenario_ids = np.array(sorted(raw_train[SCENARIO_ID].unique().tolist()))
     gkf = GroupKFold(n_splits=args.n_splits)
 
@@ -443,12 +483,29 @@ def train(args: argparse.Namespace) -> None:
         train_fold_df = raw_train[raw_train[SCENARIO_ID].isin(train_ids)].copy()
         val_fold_df = raw_train[raw_train[SCENARIO_ID].isin(val_ids)].copy()
 
+        fold_component_maps: list[Dict[str, List[str]]] | None = None
         if args.feature_selection:
             feat_cols_per_target = [
                 select_component_features_for_target(train_fold_df, TARGET_COLUMNS[ti]) for ti in range(len(TARGET_COLUMNS))
             ]
+        elif int(args.component_top_k) > 0:
+            fold_component_maps = []
+            feat_cols_per_target = []
+            for ti, tcol in enumerate(TARGET_COLUMNS):
+                cols, cmap = top_k_features_per_component_for_target(
+                    train_fold_df,
+                    tcol,
+                    k=int(args.component_top_k),
+                    min_rows_per_component=int(args.component_min_rows_per_component),
+                )
+                if not cols:
+                    raise ValueError("component-top-k selection produced empty feature set.")
+                feat_cols_per_target.append(cols)
+                fold_component_maps.append(cmap)
         else:
-            _ref = frame_to_scenario_sets(train_fold_df, is_train=True)
+            _ref = frame_to_scenario_sets(
+                train_fold_df, is_train=True, mass_interaction_k=int(args.mass_interaction_k)
+            )
             feat_cols_per_target = [_ref.feature_columns, _ref.feature_columns]
 
         per_target_metrics: list[Dict[str, float]] = []
@@ -478,6 +535,8 @@ def train(args: argparse.Namespace) -> None:
                 output_dim=1,
                 target_column=tcol,
                 hidden_dim=args.hidden_dim,
+                encoder_hidden_dim=enc_h,
+                rho_hidden_dim=rho_h,
                 dropout=args.dropout,
                 use_heterogeneity=args.use_heterogeneity,
                 epochs=args.epochs,
@@ -491,6 +550,10 @@ def train(args: argparse.Namespace) -> None:
                 use_cosine_scheduler=args.cosine_scheduler,
                 ema_decay=args.ema_decay,
                 grad_clip_norm=args.grad_clip_norm,
+                architecture=str(args.architecture),
+                transformer_layers=int(args.transformer_layers),
+                transformer_heads=int(args.transformer_heads),
+                transformer_ffn_mult=int(args.transformer_ffn_mult),
                 device=torch.device(args.device),
             )
             safe_name = f"model_t{ti}.pt"
@@ -528,12 +591,23 @@ def train(args: argparse.Namespace) -> None:
 
         fold_metadata = {
             "fold": fold_idx,
+            "train_seed": int(args.seed),
+            "mass_interaction_k": int(args.mass_interaction_k),
             "ema_decay": float(args.ema_decay),
             "separate_target_models": True,
             "feature_selection": bool(args.feature_selection),
+            "component_top_k": int(args.component_top_k),
+            "component_min_rows_per_component": int(args.component_min_rows_per_component),
             "output_dim": len(TARGET_COLUMNS),
             "model_output_dim": 1,
             "hidden_dim": args.hidden_dim,
+            "architecture": str(args.architecture),
+            "transformer_layers": int(args.transformer_layers),
+            "transformer_heads": int(args.transformer_heads),
+            "transformer_heads_effective": eff_nhead,
+            "transformer_ffn_mult": int(args.transformer_ffn_mult),
+            "encoder_hidden_dim": enc_h,
+            "rho_hidden_dim": rho_h,
             "dropout": float(args.dropout),
             "use_heterogeneity": bool(args.use_heterogeneity),
             "target_columns": TARGET_COLUMNS,
@@ -551,6 +625,9 @@ def train(args: argparse.Namespace) -> None:
             fold_metadata[f"input_dim_t{ti}"] = cfg["input_dim"]
             fold_metadata[f"context_dim_t{ti}"] = cfg["context_dim"]
             fold_metadata[f"model_path_t{ti}"] = str((fold_dir / f"model_t{ti}.pt").resolve())
+        if fold_component_maps is not None:
+            for ti, cmap in enumerate(fold_component_maps):
+                fold_metadata[f"component_feature_map_t{ti}"] = {str(k): list(v) for k, v in sorted(cmap.items())}
         # Shared-layout keys for tools that expect a single tensor width (first target).
         fold_metadata["feature_columns"] = per_target_fold_configs[0]["feature_columns"]
         fold_metadata["context_columns"] = per_target_fold_configs[0]["context_columns"]
@@ -565,8 +642,26 @@ def train(args: argparse.Namespace) -> None:
         full_feat_cols = [
             select_component_features_for_target(raw_train, TARGET_COLUMNS[ti]) for ti in range(len(TARGET_COLUMNS))
         ]
+        full_component_maps: list[Dict[str, List[str]]] | None = None
+    elif int(args.component_top_k) > 0:
+        full_component_maps = []
+        full_feat_cols = []
+        for ti, tcol in enumerate(TARGET_COLUMNS):
+            cols, cmap = top_k_features_per_component_for_target(
+                raw_train,
+                tcol,
+                k=int(args.component_top_k),
+                min_rows_per_component=int(args.component_min_rows_per_component),
+            )
+            if not cols:
+                raise ValueError("component-top-k on full train produced empty feature set.")
+            full_feat_cols.append(cols)
+            full_component_maps.append(cmap)
     else:
-        _ref_full = frame_to_scenario_sets(raw_train, is_train=True)
+        full_component_maps = None
+        _ref_full = frame_to_scenario_sets(
+            raw_train, is_train=True, mass_interaction_k=int(args.mass_interaction_k)
+        )
         full_feat_cols = [_ref_full.feature_columns, _ref_full.feature_columns]
 
     model_path_by_target: Dict[int, str] = {}
@@ -580,6 +675,7 @@ def train(args: argparse.Namespace) -> None:
             is_train=True,
             feature_columns=full_feat_cols[ti],
             interaction_feature_columns=None,
+            mass_interaction_k=0,
         )
         if grouped_train_t.targets is None:
             raise ValueError("Training targets are missing.")
@@ -598,13 +694,19 @@ def train(args: argparse.Namespace) -> None:
             num_workers=0,
             collate_fn=collate_train,
         )
-        final_model = DeepSetsRegressor(
+        final_model = build_set_regressor(
+            str(args.architecture),
             input_dim=len(grouped_train_t.feature_columns),
             context_dim=len(grouped_train_t.context_columns),
             hidden_dim=args.hidden_dim,
             output_dim=1,
             dropout=args.dropout,
             use_heterogeneity=args.use_heterogeneity,
+            encoder_hidden_dim=enc_h,
+            rho_hidden_dim=rho_h,
+            transformer_layers=int(args.transformer_layers),
+            transformer_heads=int(args.transformer_heads),
+            transformer_ffn_mult=int(args.transformer_ffn_mult),
         ).to(torch.device(args.device))
         final_optimizer = _build_optimizer(final_model, args.optimizer, args.learning_rate, args.weight_decay)
         criterion = _build_criterion(args.loss_type, args.hybrid_mse_weight)
@@ -690,11 +792,23 @@ def train(args: argparse.Namespace) -> None:
 
     metadata = {
         "target_columns": TARGET_COLUMNS,
+        "train_path": str(Path(args.train_path).resolve()),
+        "train_seed": int(args.seed),
+        "mass_interaction_k": int(args.mass_interaction_k),
         "feature_blocklist": sorted(FEATURE_BLOCKLIST),
         "separate_target_models": True,
         "feature_selection": bool(args.feature_selection),
+        "component_top_k": int(args.component_top_k),
+        "component_min_rows_per_component": int(args.component_min_rows_per_component),
         "model_output_dim": 1,
         "hidden_dim": args.hidden_dim,
+        "architecture": str(args.architecture),
+        "transformer_layers": int(args.transformer_layers),
+        "transformer_heads": int(args.transformer_heads),
+        "transformer_heads_effective": eff_nhead,
+        "transformer_ffn_mult": int(args.transformer_ffn_mult),
+        "encoder_hidden_dim": enc_h,
+        "rho_hidden_dim": rho_h,
         "dropout": float(args.dropout),
         "use_heterogeneity": bool(args.use_heterogeneity),
         "loss_type": args.loss_type,
@@ -733,12 +847,17 @@ def train(args: argparse.Namespace) -> None:
         metadata[f"ctx_std_t{ti}"] = cfg["ctx_std"]
         metadata[f"input_dim_t{ti}"] = cfg["input_dim"]
         metadata[f"context_dim_t{ti}"] = cfg["context_dim"]
+    if full_component_maps is not None:
+        for ti, cmap in enumerate(full_component_maps):
+            metadata[f"component_feature_map_t{ti}"] = {str(k): list(v) for k, v in sorted(cmap.items())}
     metadata["output_dim"] = len(TARGET_COLUMNS)
     metadata["feature_columns"] = per_target_full_configs[0]["feature_columns"]
     metadata["context_columns"] = per_target_full_configs[0]["context_columns"]
     metadata["input_dim"] = per_target_full_configs[0]["input_dim"]
     metadata["context_dim"] = per_target_full_configs[0]["context_dim"]
-    _yt = frame_to_scenario_sets(raw_train, is_train=True).targets
+    _yt = frame_to_scenario_sets(
+        raw_train, is_train=True, mass_interaction_k=int(args.mass_interaction_k)
+    ).targets
     if _yt is None:
         raise ValueError("Missing training targets for y-scaling export.")
     _yn = normalize_targets(_yt)
@@ -819,7 +938,55 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--input-noise-std", type=float, default=0.01)
     parser.add_argument("--n-splits", type=int, default=5)
     parser.add_argument("--device", type=str, default="cpu")
-    parser.add_argument("--hidden-dim", type=int, default=128)
+    parser.add_argument(
+        "--architecture",
+        type=str,
+        default="deepsets",
+        choices=[
+            "deepsets",
+            "attention",
+            "transformer",
+            "transformer_attention",
+            "transformer_attention_max",
+        ],
+        help="Set encoder: deepsets | attention | transformer | transformer_attention | transformer_attention_max (cross + mean/max pool).",
+    )
+    parser.add_argument(
+        "--transformer-layers",
+        type=int,
+        default=2,
+        help="TransformerEncoder depth when architecture is transformer or transformer_attention.",
+    )
+    parser.add_argument(
+        "--transformer-heads",
+        type=int,
+        default=4,
+        help="Requested multi-head attention heads; adjusted to divide d_model (= --hidden-dim for these architectures).",
+    )
+    parser.add_argument(
+        "--transformer-ffn-mult",
+        type=int,
+        default=2,
+        help="FFN hidden dim multiplier: dim_feedforward = mult * hidden_dim (clamped at least hidden_dim).",
+    )
+    parser.add_argument(
+        "--hidden-dim",
+        type=int,
+        default=128,
+        help="Default width when encoder/rho widths are not set separately.",
+    )
+    parser.add_argument(
+        "--encoder-hidden-dim",
+        type=int,
+        default=0,
+        help="phi + context MLP width; 0 = use --hidden-dim (smaller reduces set encoder capacity).",
+    )
+    parser.add_argument(
+        "--rho-hidden-dim",
+        type=int,
+        default=0,
+        help="rho head hidden width; 0 = use --hidden-dim (smaller head often reduces val overfit).",
+    )
     parser.add_argument(
         "--dropout",
         type=float,
@@ -855,6 +1022,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="For --loss-type hybrid: weight on MSE term (rest is log-cosh).",
     )
     parser.add_argument(
+        "--component-top-k",
+        type=int,
+        default=0,
+        help="If >0: per ``Компонент`` keep top-K numeric features by |Spearman| vs target (fit on fold train / full train). 0 disables. Mutually exclusive with --feature-selection.",
+    )
+    parser.add_argument(
+        "--component-min-rows-per-component",
+        type=int,
+        default=12,
+        help="If a ``Компонент`` has fewer rows in the fold, use global top-K Spearman fallback for that type.",
+    )
+    parser.add_argument(
         "--feature-selection",
         action=argparse.BooleanOptionalAction,
         default=False,
@@ -865,6 +1044,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
         type=float,
         default=0.998,
         help="EMA decay in (0,1): smooth weights for val checkpoints & final export. 0 disables.",
+    )
+    parser.add_argument(
+        "--mass-interaction-k",
+        type=int,
+        default=0,
+        help="Add top-K variance component features as mass_int::name = feat×(|mass|/sum|mass|) per scenario row. 0 disables.",
     )
     return parser
 

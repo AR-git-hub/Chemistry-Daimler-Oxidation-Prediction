@@ -1,11 +1,16 @@
 {
   "fold": 1,
+  "train_seed": 42,
   "ema_decay": 0.998,
   "separate_target_models": true,
   "feature_selection": false,
+  "component_top_k": 0,
+  "component_min_rows_per_component": 12,
   "output_dim": 2,
   "model_output_dim": 1,
   "hidden_dim": 128,
+  "encoder_hidden_dim": null,
+  "rho_hidden_dim": null,
   "dropout": 0.0,
   "use_heterogeneity": false,
   "target_columns": [

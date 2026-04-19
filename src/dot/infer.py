@@ -1,4 +1,4 @@
-"""Inference pipeline that generates predictions.csv."""
+﻿"""Inference pipeline that generates predictions.csv."""
 
 from __future__ import annotations
 
@@ -13,12 +13,49 @@ from torch.utils.data import DataLoader
 
 from .config import ARTIFACTS_DIR, SCENARIO_ID, TARGET_COLUMNS, TEST_PATH
 from .data import apply_context_scaler, apply_feature_scaler, frame_to_scenario_sets
-from .model import DeepSetsRegressor, ScenarioSetDataset, collate_infer
+from .model import ScenarioSetDataset, collate_infer
+from .set_sequence_models import build_set_regressor
 
 
 def load_metadata(path: Path) -> dict:
     with path.open("r", encoding="utf-8") as f:
         return json.load(f)
+
+
+def _optional_positive_int(meta: dict, key: str) -> int | None:
+    v = meta.get(key)
+    if v is None:
+        return None
+    try:
+        i = int(v)
+    except (TypeError, ValueError):
+        return None
+    return i if i > 0 else None
+
+
+def build_regressor_from_meta(
+    artifact_meta: dict,
+    *,
+    input_dim: int,
+    context_dim: int,
+    output_dim: int,
+) -> torch.nn.Module:
+    """Construct set regressor (Deep Sets or attention/Transformer variants) from artifact metadata."""
+    arch = str(artifact_meta.get("architecture", "deepsets"))
+    return build_set_regressor(
+        arch,
+        input_dim=input_dim,
+        context_dim=context_dim,
+        hidden_dim=int(artifact_meta.get("hidden_dim", 128)),
+        output_dim=output_dim,
+        dropout=float(artifact_meta.get("dropout", 0.0)),
+        use_heterogeneity=bool(artifact_meta.get("use_heterogeneity", False)),
+        encoder_hidden_dim=_optional_positive_int(artifact_meta, "encoder_hidden_dim"),
+        rho_hidden_dim=_optional_positive_int(artifact_meta, "rho_hidden_dim"),
+        transformer_layers=int(artifact_meta.get("transformer_layers", 2)),
+        transformer_heads=int(artifact_meta.get("transformer_heads", 4)),
+        transformer_ffn_mult=int(artifact_meta.get("transformer_ffn_mult", 2)),
+    )
 
 
 def _forward_batches_tta(
@@ -123,13 +160,11 @@ def _predict_with_artifact(
             elif scenario_ids_result != scenario_test.scenario_ids:
                 raise ValueError("Scenario ordering differs across per-target feature sets.")
 
-            model = DeepSetsRegressor(
+            model = build_regressor_from_meta(
+                artifact_meta,
                 input_dim=in_dim,
                 context_dim=ctx_dim,
-                hidden_dim=int(artifact_meta.get("hidden_dim", 128)),
                 output_dim=1,
-                dropout=float(artifact_meta.get("dropout", 0.0)),
-                use_heterogeneity=bool(artifact_meta.get("use_heterogeneity", False)),
             )
             state_dict = torch.load(mp, map_location=torch.device(device))
             model.load_state_dict(state_dict)
@@ -171,13 +206,11 @@ def _predict_with_artifact(
 
         if model_path is None:
             raise ValueError("model_path is required for legacy joint-output checkpoints.")
-        model = DeepSetsRegressor(
+        model = build_regressor_from_meta(
+            artifact_meta,
             input_dim=int(artifact_meta["input_dim"]),
             context_dim=int(artifact_meta["context_dim"]),
-            hidden_dim=int(artifact_meta.get("hidden_dim", 128)),
             output_dim=int(artifact_meta["output_dim"]),
-            dropout=float(artifact_meta.get("dropout", 0.0)),
-            use_heterogeneity=bool(artifact_meta.get("use_heterogeneity", False)),
         )
         state_dict = torch.load(model_path, map_location=torch.device(device))
         model.load_state_dict(state_dict)

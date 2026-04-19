@@ -87,32 +87,36 @@ class DeepSetsRegressor(nn.Module):
         output_dim: int = 1,
         dropout: float = 0.0,
         use_heterogeneity: bool = False,
+        encoder_hidden_dim: int | None = None,
+        rho_hidden_dim: int | None = None,
     ) -> None:
         super().__init__()
         self.use_heterogeneity = bool(use_heterogeneity)
         dp = float(dropout)
+        enc_h = int(encoder_hidden_dim) if encoder_hidden_dim is not None else int(hidden_dim)
+        rho_h = int(rho_hidden_dim) if rho_hidden_dim is not None else int(hidden_dim)
         self.phi = nn.Sequential(
-            nn.Linear(input_dim, hidden_dim),
+            nn.Linear(input_dim, enc_h),
             nn.ReLU(),
             nn.Dropout(dp),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(enc_h, enc_h),
             nn.ReLU(),
             nn.Dropout(dp),
         )
         self.context_encoder = nn.Sequential(
-            nn.Linear(context_dim, hidden_dim),
+            nn.Linear(context_dim, enc_h),
             nn.ReLU(),
             nn.Dropout(dp),
-            nn.Linear(hidden_dim, hidden_dim),
+            nn.Linear(enc_h, enc_h),
             nn.ReLU(),
             nn.Dropout(dp),
         )
-        rho_in = hidden_dim * 3 + 1 + (1 if self.use_heterogeneity else 0)
+        rho_in = enc_h * 3 + 1 + (1 if self.use_heterogeneity else 0)
         self.rho = nn.Sequential(
-            nn.Linear(rho_in, hidden_dim),
+            nn.Linear(rho_in, rho_h),
             nn.ReLU(),
             nn.Dropout(dp),
-            nn.Linear(hidden_dim, output_dim),
+            nn.Linear(rho_h, output_dim),
         )
 
     def forward(self, x: torch.Tensor, mask: torch.Tensor, context: torch.Tensor) -> torch.Tensor:

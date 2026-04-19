@@ -1,0 +1,34 @@
+﻿{
+  "train_seed": 42,
+  "device": "cpu",
+  "model_defaults_note": "hidden_dim=128, encoder/rho unset (same as hidden), train_full pipeline (hybrid+logcosh, EMA, holdout, blocklist as in code)",
+  "baseline_reference_cv_mse": 0.23000728701590561,
+  "runs": [
+    {
+      "train_csv": "data/merged/train_full.csv",
+      "cv_mean_mse_normalized": 0.23000728701590561,
+      "cv_mean_mae_normalized": 0.26060629449784756,
+      "delta_mse_vs_full": 0.0,
+      "delta_mae_vs_full": 0.0,
+      "winner_mse": true
+    },
+    {
+      "train_csv": "data/merged/train_fe.csv",
+      "cv_mean_mse_normalized": 0.23870822882890935,
+      "cv_mean_mae_normalized": 0.25059239082038404,
+      "delta_mse_vs_full": 0.00870094181299374,
+      "delta_mae_vs_full": -0.010013903677463517,
+      "winner_mse": false
+    },
+    {
+      "train_csv": "data/merged/train_fe_cleaned.csv",
+      "cv_mean_mse_normalized": 0.26568850343246597,
+      "cv_mean_mae_normalized": 0.27161157242953776,
+      "delta_mse_vs_full": 0.03568121641656036,
+      "delta_mae_vs_full": 0.011005277931690198,
+      "winner_mse": false
+    }
+  ],
+  "chosen_train": "data/merged/train_full.csv",
+  "chosen_test": "data/merged/test_full.csv"
+}
