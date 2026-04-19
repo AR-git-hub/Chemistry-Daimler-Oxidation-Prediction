@@ -1,4 +1,4 @@
-﻿"""Stack K fold-trained artifacts with a linear stacker fit on out-of-fold train predictions.
+"""Stack K fold-trained artifacts with a linear stacker fit on out-of-fold train predictions.
 
 Replays the same GroupKFold split as ``train.py``, runs each fold model on its validation
 scenarios, denormalizes with **that fold's** ``y_mean``/``y_std``, then fits per-target
@@ -6,8 +6,8 @@ stackers on ``[pred_0, …, pred_{K-1}]`` vs true targets (default: ``Ridge``). 
 same map to K test prediction CSVs (original target units).
 
 Stackers (``--stacker``): ``ridge`` (default), ``huber``, ``elasticnet``,
-``positive_lr``, ``simplex`` (weights ≥0, sum to 1 per target; use ``--simplex-objective mae``
-if MSE collapses redundant models to zero weight).
+``positive_lr``, ``simplex``, ``poly2_ridge`` (pairwise products of base preds + Ridge;
+use ``--poly-only-for t1`` to keep target 0 strictly linear — safer for ΔKV).
 
 Example (3 models)::
 
@@ -21,7 +21,7 @@ Optional: ``--tune-ridge-alphas "1,2,4,6,8,12"`` runs nested GroupKFold on OOF (
 leakage) and picks the best alpha (``ridge`` only). Use ``--tune-metric rmse`` if the LB is
 MSE-heavy. ``--ridge-alpha-t0`` / ``--ridge-alpha-t1`` set different L2 per target for ridge.
 
-Other stackers: ``--stacker huber|elasticnet|positive_lr|simplex`` (see CLI flags for Huber / ElasticNet).
+Other stackers: ``huber``, ``elasticnet``, ``positive_lr``, ``simplex``, ``poly2_ridge`` (see CLI).
 """
 
 from __future__ import annotations
@@ -36,6 +36,8 @@ import pandas as pd
 import torch
 from scipy.optimize import minimize
 from sklearn.linear_model import ElasticNet, HuberRegressor, LinearRegression, Ridge
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import PolynomialFeatures
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from sklearn.model_selection import GroupKFold
 from torch.utils.data import DataLoader
@@ -108,11 +110,13 @@ def _oof_one_artifact(
             if y_std < 1e-12:
                 y_std = 1.0
 
+            rich_ctx = bool(fold_meta.get("rich_scenario_context", False))
             scenario_data = frame_to_scenario_sets(
                 val_df,
                 is_train=False,
                 feature_columns=feature_columns,
                 interaction_feature_columns=interaction_feature_columns,
+                rich_scenario_context=rich_ctx,
             )
             if scenario_data.context_columns != context_columns:
                 raise ValueError("Context mismatch in OOF build.")
@@ -224,7 +228,18 @@ def _stacker_coef_str(model, K: int) -> str:
     return ""
 
 
-def _nested_stack_cv_score(
+def _make_poly2_ridge_pipeline(alpha: float, *, interaction_only: bool) -> object:
+    return make_pipeline(
+        PolynomialFeatures(
+            degree=2,
+            interaction_only=interaction_only,
+            include_bias=False,
+        ),
+        Ridge(alpha=float(alpha), fit_intercept=True),
+    )
+
+
+def _nested_stack_cv_score_poly2(
     oofs: list[np.ndarray],
     y_true: np.ndarray,
     scenario_ids: np.ndarray,
@@ -232,22 +247,70 @@ def _nested_stack_cv_score(
     alpha: float,
     n_splits: int,
     metric: str,
+    interaction_only: bool,
+    poly_only_for: str,
+    weight_t0: float = 0.5,
 ) -> tuple[float, float, float]:
-    """Fit per-target Ridge with nested GroupKFold on OOF features (no stacker leakage).
-
-    Returns (combined_score, err0, err1) where err* is MAE or RMSE per target and
-    combined is their sum after dividing by each target's train std (scale-free).
-    """
+    """Nested CV when stacker uses poly2 on selected targets and linear Ridge on others."""
     n = y_true.shape[0]
     idx = np.arange(n, dtype=np.int64)
     gkf = GroupKFold(n_splits=n_splits)
     pred = np.zeros_like(y_true)
+    use_poly = {0: poly_only_for in ("both", "t0"), 1: poly_only_for in ("both", "t1")}
     for tr_idx, va_idx in gkf.split(idx, groups=scenario_ids):
         for ti in range(y_true.shape[1]):
             X_tr = np.column_stack([oof[tr_idx, ti] for oof in oofs])
             y_tr = y_true[tr_idx, ti]
             X_va = np.column_stack([oof[va_idx, ti] for oof in oofs])
-            ridge = Ridge(alpha=float(alpha), fit_intercept=True)
+            if use_poly[ti]:
+                pipe = _make_poly2_ridge_pipeline(alpha, interaction_only=interaction_only)
+                pipe.fit(X_tr, y_tr)
+                pred[va_idx, ti] = pipe.predict(X_va)
+            else:
+                ridge = Ridge(alpha=float(alpha), fit_intercept=True)
+                ridge.fit(X_tr, y_tr)
+                pred[va_idx, ti] = ridge.predict(X_va)
+    std0 = float(np.std(y_true[:, 0])) or 1.0
+    std1 = float(np.std(y_true[:, 1])) or 1.0
+    if metric == "mae":
+        e0 = float(mean_absolute_error(y_true[:, 0], pred[:, 0]))
+        e1 = float(mean_absolute_error(y_true[:, 1], pred[:, 1]))
+    elif metric == "rmse":
+        e0 = float(np.sqrt(mean_squared_error(y_true[:, 0], pred[:, 0])))
+        e1 = float(np.sqrt(mean_squared_error(y_true[:, 1], pred[:, 1])))
+    else:
+        raise ValueError(metric)
+    w0 = float(weight_t0)
+    w1 = float(1.0 - w0)
+    combined = w0 * (e0 / std0) + w1 * (e1 / std1)
+    return combined, e0, e1
+
+
+def _nested_stack_cv_score_dual_alpha(
+    oofs: list[np.ndarray],
+    y_true: np.ndarray,
+    scenario_ids: np.ndarray,
+    *,
+    alpha_t0: float,
+    alpha_t1: float,
+    n_splits: int,
+    metric: str,
+    weight_t0: float = 0.5,
+) -> tuple[float, float, float]:
+    """Nested GroupKFold on OOF; Ridge **per target** may use different L2 (ΔKV vs oxidation)."""
+    w0 = float(weight_t0)
+    w1 = float(1.0 - w0)
+    n = y_true.shape[0]
+    idx = np.arange(n, dtype=np.int64)
+    gkf = GroupKFold(n_splits=n_splits)
+    pred = np.zeros_like(y_true)
+    alphas = (float(alpha_t0), float(alpha_t1))
+    for tr_idx, va_idx in gkf.split(idx, groups=scenario_ids):
+        for ti in range(y_true.shape[1]):
+            X_tr = np.column_stack([oof[tr_idx, ti] for oof in oofs])
+            y_tr = y_true[tr_idx, ti]
+            X_va = np.column_stack([oof[va_idx, ti] for oof in oofs])
+            ridge = Ridge(alpha=float(alphas[ti]), fit_intercept=True)
             ridge.fit(X_tr, y_tr)
             pred[va_idx, ti] = ridge.predict(X_va)
     std0 = float(np.std(y_true[:, 0])) or 1.0
@@ -260,8 +323,35 @@ def _nested_stack_cv_score(
         e1 = float(np.sqrt(mean_squared_error(y_true[:, 1], pred[:, 1])))
     else:
         raise ValueError(metric)
-    combined = e0 / std0 + e1 / std1
+    combined = w0 * (e0 / std0) + w1 * (e1 / std1)
     return combined, e0, e1
+
+
+def _nested_stack_cv_score(
+    oofs: list[np.ndarray],
+    y_true: np.ndarray,
+    scenario_ids: np.ndarray,
+    *,
+    alpha: float,
+    n_splits: int,
+    metric: str,
+    weight_t0: float = 0.5,
+) -> tuple[float, float, float]:
+    """Fit per-target Ridge with nested GroupKFold on OOF features (no stacker leakage).
+
+    Returns (combined_score, err0, err1) where err* is MAE or RMSE per target and
+    combined is a weighted sum of errors scaled by each target's train std.
+    """
+    return _nested_stack_cv_score_dual_alpha(
+        oofs,
+        y_true,
+        scenario_ids,
+        alpha_t0=alpha,
+        alpha_t1=alpha,
+        n_splits=n_splits,
+        metric=metric,
+        weight_t0=weight_t0,
+    )
 
 
 def main() -> None:
@@ -309,7 +399,27 @@ def main() -> None:
         default=None,
         help=(
             "Comma-separated Ridge alphas to evaluate with nested GroupKFold on OOF "
-            "(same groups as training). Prints scores and picks the best for the final fit."
+            "(same groups as training). Works for stacker ridge or poly2_ridge. Prints scores "
+            "and picks the best for the final fit."
+        ),
+    )
+    ap.add_argument(
+        "--tune-ridge-per-target-grid",
+        type=str,
+        default=None,
+        help=(
+            "Ridge stacker only: two comma-separated alpha lists separated by '|' for "
+            "(L2 target0, L2 target1), e.g. '4,10,18,26|6,12,20,32'. Nested GroupKFold picks "
+            "the pair. Mutually exclusive with --tune-ridge-alphas."
+        ),
+    )
+    ap.add_argument(
+        "--tune-metric-weight-t0",
+        type=float,
+        default=0.5,
+        help=(
+            "Weight on target 0 in nested-CV combined score (target 1 weight = 1 minus this). "
+            "Try ~0.35–0.45 if leaderboard is dominated by oxidation (t1)."
         ),
     )
     ap.add_argument(
@@ -323,8 +433,21 @@ def main() -> None:
         "--stacker",
         type=str,
         default="ridge",
-        choices=("ridge", "huber", "elasticnet", "positive_lr", "simplex"),
-        help="Second-level regressor (default ridge). tune-ridge-alphas only applies to ridge.",
+        choices=("ridge", "huber", "elasticnet", "positive_lr", "simplex", "poly2_ridge"),
+        help="Second-level regressor (default ridge). poly2_ridge = pairwise products of base preds + Ridge.",
+    )
+    ap.add_argument(
+        "--poly-interaction-only",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="For poly2_ridge: if true (default), only cross-terms x_i x_j (no pure squares).",
+    )
+    ap.add_argument(
+        "--poly-only-for",
+        type=str,
+        default="t1",
+        choices=("both", "t0", "t1"),
+        help="Which targets use polynomial expansion; others use linear Ridge (default t1 = oxidation only).",
     )
     ap.add_argument("--huber-epsilon", type=float, default=1.35)
     ap.add_argument(
@@ -344,8 +467,12 @@ def main() -> None:
     )
     args = ap.parse_args()
 
-    if args.tune_ridge_alphas and args.stacker != "ridge":
-        raise SystemExit("--tune-ridge-alphas requires --stacker ridge.")
+    if args.tune_ridge_alphas and args.tune_ridge_per_target_grid:
+        raise SystemExit("Use only one of --tune-ridge-alphas or --tune-ridge-per-target-grid.")
+    if args.tune_ridge_alphas and args.stacker not in ("ridge", "poly2_ridge"):
+        raise SystemExit("--tune-ridge-alphas requires --stacker ridge or poly2_ridge.")
+    if args.tune_ridge_per_target_grid and args.stacker != "ridge":
+        raise SystemExit("--tune-ridge-per-target-grid requires --stacker ridge.")
     if args.stacker == "simplex" and (
         args.ridge_alpha_t0 is not None or args.ridge_alpha_t1 is not None
     ):
@@ -379,25 +506,44 @@ def main() -> None:
     assert y_ref is not None and sids_ref is not None
     sid_arr = np.array(sids_ref, dtype=object)
 
+    wt0 = float(args.tune_metric_weight_t0)
+    if not (0.0 <= wt0 <= 1.0):
+        raise SystemExit("--tune-metric-weight-t0 must be in [0, 1].")
+
     if args.tune_ridge_alphas:
         alphas = [float(x.strip()) for x in args.tune_ridge_alphas.split(",") if x.strip()]
         if len(alphas) < 1:
             raise SystemExit("--tune-ridge-alphas must list at least one value.")
         print(
-            f"Nested GroupKFold stacker CV metric={args.tune_metric} (lower combined = better):",
+            f"Nested GroupKFold stacker CV metric={args.tune_metric} stacker={args.stacker} "
+            f"w_t0={wt0:g} (lower combined = better):",
             flush=True,
         )
         best_a: float | None = None
         best_score = float("inf")
         for a in alphas:
-            sc, m0, m1 = _nested_stack_cv_score(
-                oofs,
-                y_ref,
-                sid_arr,
-                alpha=a,
-                n_splits=args.n_splits,
-                metric=args.tune_metric,
-            )
+            if args.stacker == "poly2_ridge":
+                sc, m0, m1 = _nested_stack_cv_score_poly2(
+                    oofs,
+                    y_ref,
+                    sid_arr,
+                    alpha=a,
+                    n_splits=args.n_splits,
+                    metric=args.tune_metric,
+                    interaction_only=bool(args.poly_interaction_only),
+                    poly_only_for=str(args.poly_only_for),
+                    weight_t0=wt0,
+                )
+            else:
+                sc, m0, m1 = _nested_stack_cv_score(
+                    oofs,
+                    y_ref,
+                    sid_arr,
+                    alpha=a,
+                    n_splits=args.n_splits,
+                    metric=args.tune_metric,
+                    weight_t0=wt0,
+                )
             label = "MAE" if args.tune_metric == "mae" else "RMSE"
             print(f"  alpha={a:g}  combined={sc:.6f}  {label}_t0={m0:.6f}  {label}_t1={m1:.6f}", flush=True)
             if sc < best_score:
@@ -406,6 +552,53 @@ def main() -> None:
         assert best_a is not None
         print(f"Chosen ridge-alpha from tune: {best_a} (combined={best_score:.6f})", flush=True)
         args.ridge_alpha = float(best_a)
+
+    elif args.tune_ridge_per_target_grid:
+        raw = args.tune_ridge_per_target_grid.strip()
+        if "|" not in raw:
+            raise SystemExit("--tune-ridge-per-target-grid must contain '|' e.g. '4,12,20|6,14,22'")
+        left, _, right = raw.partition("|")
+        a0s = [float(x.strip()) for x in left.split(",") if x.strip()]
+        a1s = [float(x.strip()) for x in right.split(",") if x.strip()]
+        if len(a0s) < 1 or len(a1s) < 1:
+            raise SystemExit("Both sides of '|' need at least one alpha.")
+        print(
+            f"Nested GroupKFold per-target Ridge grid w_t0={wt0:g} metric={args.tune_metric} "
+            f"({len(a0s)} x {len(a1s)} pairs):",
+            flush=True,
+        )
+        best_a0: float | None = None
+        best_a1: float | None = None
+        best_score = float("inf")
+        label = "MAE" if args.tune_metric == "mae" else "RMSE"
+        for a0 in a0s:
+            for a1 in a1s:
+                sc, m0, m1 = _nested_stack_cv_score_dual_alpha(
+                    oofs,
+                    y_ref,
+                    sid_arr,
+                    alpha_t0=a0,
+                    alpha_t1=a1,
+                    n_splits=args.n_splits,
+                    metric=args.tune_metric,
+                    weight_t0=wt0,
+                )
+                print(
+                    f"  a0={a0:g} a1={a1:g}  combined={sc:.6f}  {label}_t0={m0:.6f}  {label}_t1={m1:.6f}",
+                    flush=True,
+                )
+                if sc < best_score:
+                    best_score = sc
+                    best_a0 = a0
+                    best_a1 = a1
+        assert best_a0 is not None and best_a1 is not None
+        args.ridge_alpha_t0 = float(best_a0)
+        args.ridge_alpha_t1 = float(best_a1)
+        args.ridge_alpha = float(max(best_a0, best_a1))
+        print(
+            f"Chosen ridge-alphas: t0={best_a0:g} t1={best_a1:g} (combined={best_score:.6f})",
+            flush=True,
+        )
 
     pred_dfs: list[pd.DataFrame] = []
     for p in preds_paths:
@@ -439,6 +632,11 @@ def main() -> None:
     alpha_t1 = float(args.ridge_alpha_t1) if args.ridge_alpha_t1 is not None else float(args.ridge_alpha)
     alphas_per_t = [alpha_t0, alpha_t1]
 
+    use_poly = {
+        0: args.poly_only_for in ("both", "t0"),
+        1: args.poly_only_for in ("both", "t1"),
+    }
+
     if args.stacker == "simplex":
         fit_fn = _fit_simplex_weights_mse if args.simplex_objective == "mse" else _fit_simplex_weights_mae
         simplex_w = []
@@ -453,6 +651,27 @@ def main() -> None:
             mae = float(mean_absolute_error(y, X @ w))
             print(
                 f"Target {ti} ({tcol[:48]}...): stacker=simplex {parts}  OOF_MSE={mse:.4f} OOF_MAE={mae:.4f}",
+                flush=True,
+            )
+    elif args.stacker == "poly2_ridge":
+        for ti, tcol in enumerate(TARGET_COLUMNS):
+            X = np.column_stack([oof[:, ti] for oof in oofs])
+            y = y_ref[:, ti]
+            if use_poly[ti]:
+                m = _make_poly2_ridge_pipeline(
+                    float(alphas_per_t[ti]),
+                    interaction_only=bool(args.poly_interaction_only),
+                )
+            else:
+                m = Ridge(alpha=float(alphas_per_t[ti]), fit_intercept=True)
+            m.fit(X, y)
+            models.append(m)
+            ridge_step = m.named_steps["ridge"] if hasattr(m, "named_steps") else m
+            ncoef = len(np.asarray(ridge_step.coef_).ravel())
+            ic = float(getattr(ridge_step, "intercept_", 0.0))
+            kind = "poly2+ridge" if use_poly[ti] else "ridge"
+            print(
+                f"Target {ti} ({tcol[:48]}...): stacker={kind} n_ridge_coef={ncoef} intercept={ic:.6f}",
                 flush=True,
             )
     else:

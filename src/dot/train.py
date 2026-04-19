@@ -141,6 +141,52 @@ class _EmaTracker:
         model.load_state_dict({k: v.to(device) for k, v in backup.items()})
 
 
+def _val_score_for_selection(val_metrics: Dict[str, float], metric: str) -> float:
+    """Scalar for early stopping / best checkpoint (lower is better). All on normalized targets."""
+    m = str(metric).lower().strip()
+    if m == "mse":
+        return float(val_metrics["mse"])
+    if m == "mae":
+        return float(val_metrics["mae"])
+    if m == "rmse":
+        return float(np.sqrt(max(float(val_metrics["mse"]), 0.0)))
+    if m == "combined":
+        return 0.5 * float(val_metrics["mse"]) + 0.5 * float(val_metrics["mae"])
+    raise ValueError(f"Unsupported val_selection_metric: {metric!r}")
+
+
+_VAL_METRIC_CHOICES = frozenset({"mse", "mae", "rmse", "combined"})
+_LOSS_TYPE_CHOICES = frozenset({"mse", "smoothl1", "logcosh", "hybrid"})
+
+
+def _effective_loss_type(args: argparse.Namespace, target_idx: int) -> str:
+    """Per-target training loss; default ``--loss-type``."""
+    base = str(args.loss_type).lower().strip()
+    if int(target_idx) == 0:
+        o = getattr(args, "loss_type_t0", None)
+        if o is not None and str(o).strip():
+            return str(o).lower().strip()
+    elif int(target_idx) == 1:
+        o = getattr(args, "loss_type_t1", None)
+        if o is not None and str(o).strip():
+            return str(o).lower().strip()
+    return base
+
+
+def _effective_val_selection_metric(args: argparse.Namespace, target_idx: int) -> str:
+    """Per-target early-stopping metric on fold val (still no leakage). Default: --val-selection-metric."""
+    base = str(args.val_selection_metric).lower().strip()
+    if int(target_idx) == 0:
+        o = getattr(args, "val_selection_metric_t0", None)
+        if o is not None and str(o).strip():
+            return str(o).lower().strip()
+    elif int(target_idx) == 1:
+        o = getattr(args, "val_selection_metric_t1", None)
+        if o is not None and str(o).strip():
+            return str(o).lower().strip()
+    return base
+
+
 def _evaluate(model: nn.Module, loader: DataLoader, device: torch.device) -> Dict[str, float]:
     model.eval()
     losses = []
@@ -191,6 +237,7 @@ def _train_fold(
     transformer_heads: int,
     transformer_ffn_mult: int,
     device: torch.device,
+    val_selection_metric: str,
 ) -> Tuple[nn.Module, Dict[str, float]]:
     """Train a single-output head (``output_dim`` is 1 for per-target models)."""
     train_loader = _build_loader(train_dataset, batch_size=batch_size, shuffle=True)
@@ -253,7 +300,7 @@ def _train_fold(
             _EmaTracker.restore(model, backup, device)
         else:
             val_metrics = _evaluate(model, val_loader, device)
-        val_loss = val_metrics["mse"]
+        val_loss = _val_score_for_selection(val_metrics, val_selection_metric)
         if val_loss < best_val:
             best_val = val_loss
             best_epoch = epochs_run
@@ -347,7 +394,7 @@ def _final_epochs_from_holdout_probe(
         batch_size=args.batch_size,
         lr=args.learning_rate,
         input_noise_std=args.input_noise_std,
-        loss_type=args.loss_type,
+        loss_type=_effective_loss_type(args, int(target_idx)),
         hybrid_mse_weight=args.hybrid_mse_weight,
         optimizer_name=args.optimizer,
         weight_decay=args.weight_decay,
@@ -359,6 +406,7 @@ def _final_epochs_from_holdout_probe(
         transformer_heads=int(args.transformer_heads),
         transformer_ffn_mult=int(args.transformer_ffn_mult),
         device=device,
+        val_selection_metric=_effective_val_selection_metric(args, int(target_idx)),
     )
     ho_best = int(probe_m["best_epoch"])
     slack = max(
@@ -411,6 +459,8 @@ def _build_fold_datasets_for_target(
     train_fold_df: pd.DataFrame,
     val_fold_df: pd.DataFrame,
     feature_columns: List[str],
+    *,
+    rich_scenario_context: bool,
 ) -> tuple[ScenarioSetDataset, ScenarioSetDataset, Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, object]]:
     fold_train = frame_to_scenario_sets(
         train_fold_df,
@@ -418,6 +468,7 @@ def _build_fold_datasets_for_target(
         feature_columns=feature_columns,
         interaction_feature_columns=None,
         mass_interaction_k=0,
+        rich_scenario_context=rich_scenario_context,
     )
     fold_val = frame_to_scenario_sets(
         val_fold_df,
@@ -425,6 +476,7 @@ def _build_fold_datasets_for_target(
         feature_columns=feature_columns,
         interaction_feature_columns=fold_train.interaction_feature_columns,
         mass_interaction_k=0,
+        rich_scenario_context=rich_scenario_context,
     )
     if fold_train.targets is None or fold_val.targets is None:
         raise ValueError("Fold targets are missing.")
@@ -451,6 +503,26 @@ def _build_fold_datasets_for_target(
 
 
 def train(args: argparse.Namespace) -> None:
+    if str(args.val_selection_metric).lower().strip() not in _VAL_METRIC_CHOICES:
+        raise ValueError(f"Unsupported --val-selection-metric: {args.val_selection_metric!r}")
+    for name, raw in (
+        ("--val-selection-metric-t0", getattr(args, "val_selection_metric_t0", None)),
+        ("--val-selection-metric-t1", getattr(args, "val_selection_metric_t1", None)),
+    ):
+        if raw is None or not str(raw).strip():
+            continue
+        if str(raw).lower().strip() not in _VAL_METRIC_CHOICES:
+            raise ValueError(f"Unsupported {name}: {raw!r}")
+    if str(args.loss_type).lower().strip() not in _LOSS_TYPE_CHOICES:
+        raise ValueError(f"Unsupported --loss-type: {args.loss_type!r}")
+    for name, raw in (
+        ("--loss-type-t0", getattr(args, "loss_type_t0", None)),
+        ("--loss-type-t1", getattr(args, "loss_type_t1", None)),
+    ):
+        if raw is None or not str(raw).strip():
+            continue
+        if str(raw).lower().strip() not in _LOSS_TYPE_CHOICES:
+            raise ValueError(f"Unsupported {name}: {raw!r}")
     if bool(args.feature_selection) and int(args.component_top_k) > 0:
         raise ValueError("Use either --feature-selection or --component-top-k, not both.")
     if int(args.mass_interaction_k) > 0 and (bool(args.feature_selection) or int(args.component_top_k) > 0):
@@ -466,9 +538,12 @@ def train(args: argparse.Namespace) -> None:
     raw_train = pd.read_csv(args.train_path)
     enc_h, rho_h = _encoder_rho_from_args(args)
     arch_lc = str(args.architecture).lower().strip()
+    _non_transformer_archs = frozenset(
+        {"deepsets", "deep_sets", "deepset", "deepsets_sumpool", "deepsets_sum_pool", "deepset_sumpool"}
+    )
     eff_nhead = (
         _nhead_for_d_model(int(args.hidden_dim), int(args.transformer_heads))
-        if arch_lc not in ("deepsets", "deep_sets", "deepset")
+        if arch_lc not in _non_transformer_archs
         else None
     )
     scenario_ids = np.array(sorted(raw_train[SCENARIO_ID].unique().tolist()))
@@ -504,7 +579,10 @@ def train(args: argparse.Namespace) -> None:
                 fold_component_maps.append(cmap)
         else:
             _ref = frame_to_scenario_sets(
-                train_fold_df, is_train=True, mass_interaction_k=int(args.mass_interaction_k)
+                train_fold_df,
+                is_train=True,
+                mass_interaction_k=int(args.mass_interaction_k),
+                rich_scenario_context=bool(args.rich_scenario_context),
             )
             feat_cols_per_target = [_ref.feature_columns, _ref.feature_columns]
 
@@ -515,7 +593,10 @@ def train(args: argparse.Namespace) -> None:
 
         for ti, tcol in enumerate(TARGET_COLUMNS):
             train_dataset, val_dataset, x_stats, c_stats, y_stats, fold_meta = _build_fold_datasets_for_target(
-                train_fold_df, val_fold_df, feat_cols_per_target[ti]
+                train_fold_df,
+                val_fold_df,
+                feat_cols_per_target[ti],
+                rich_scenario_context=bool(args.rich_scenario_context),
             )
             assert train_dataset.targets is not None and val_dataset.targets is not None
             train_y_np = train_dataset.targets.numpy()
@@ -543,7 +624,7 @@ def train(args: argparse.Namespace) -> None:
                 batch_size=args.batch_size,
                 lr=args.learning_rate,
                 input_noise_std=args.input_noise_std,
-                loss_type=args.loss_type,
+                loss_type=_effective_loss_type(args, ti),
                 hybrid_mse_weight=args.hybrid_mse_weight,
                 optimizer_name=args.optimizer,
                 weight_decay=args.weight_decay,
@@ -555,6 +636,7 @@ def train(args: argparse.Namespace) -> None:
                 transformer_heads=int(args.transformer_heads),
                 transformer_ffn_mult=int(args.transformer_ffn_mult),
                 device=torch.device(args.device),
+                val_selection_metric=_effective_val_selection_metric(args, ti),
             )
             safe_name = f"model_t{ti}.pt"
             fold_model_path = fold_dir / safe_name
@@ -592,6 +674,7 @@ def train(args: argparse.Namespace) -> None:
         fold_metadata = {
             "fold": fold_idx,
             "train_seed": int(args.seed),
+            "rich_scenario_context": bool(args.rich_scenario_context),
             "mass_interaction_k": int(args.mass_interaction_k),
             "ema_decay": float(args.ema_decay),
             "separate_target_models": True,
@@ -610,6 +693,11 @@ def train(args: argparse.Namespace) -> None:
             "rho_hidden_dim": rho_h,
             "dropout": float(args.dropout),
             "use_heterogeneity": bool(args.use_heterogeneity),
+            "val_selection_metric": str(args.val_selection_metric),
+            "val_selection_metric_effective_t0": _effective_val_selection_metric(args, 0),
+            "val_selection_metric_effective_t1": _effective_val_selection_metric(args, 1),
+            "loss_type_effective_t0": _effective_loss_type(args, 0),
+            "loss_type_effective_t1": _effective_loss_type(args, 1),
             "target_columns": TARGET_COLUMNS,
             "y_mean": y_stats["mean"].tolist(),
             "y_std": y_stats["std"].tolist(),
@@ -660,7 +748,10 @@ def train(args: argparse.Namespace) -> None:
     else:
         full_component_maps = None
         _ref_full = frame_to_scenario_sets(
-            raw_train, is_train=True, mass_interaction_k=int(args.mass_interaction_k)
+            raw_train,
+            is_train=True,
+            mass_interaction_k=int(args.mass_interaction_k),
+            rich_scenario_context=bool(args.rich_scenario_context),
         )
         full_feat_cols = [_ref_full.feature_columns, _ref_full.feature_columns]
 
@@ -676,6 +767,7 @@ def train(args: argparse.Namespace) -> None:
             feature_columns=full_feat_cols[ti],
             interaction_feature_columns=None,
             mass_interaction_k=0,
+            rich_scenario_context=bool(args.rich_scenario_context),
         )
         if grouped_train_t.targets is None:
             raise ValueError("Training targets are missing.")
@@ -709,7 +801,7 @@ def train(args: argparse.Namespace) -> None:
             transformer_ffn_mult=int(args.transformer_ffn_mult),
         ).to(torch.device(args.device))
         final_optimizer = _build_optimizer(final_model, args.optimizer, args.learning_rate, args.weight_decay)
-        criterion = _build_criterion(args.loss_type, args.hybrid_mse_weight)
+        criterion = _build_criterion(_effective_loss_type(args, ti), args.hybrid_mse_weight)
         ema_f: _EmaTracker | None = (
             _EmaTracker(args.ema_decay) if 0.0 < args.ema_decay < 1.0 else None
         )
@@ -794,6 +886,7 @@ def train(args: argparse.Namespace) -> None:
         "target_columns": TARGET_COLUMNS,
         "train_path": str(Path(args.train_path).resolve()),
         "train_seed": int(args.seed),
+        "rich_scenario_context": bool(args.rich_scenario_context),
         "mass_interaction_k": int(args.mass_interaction_k),
         "feature_blocklist": sorted(FEATURE_BLOCKLIST),
         "separate_target_models": True,
@@ -812,12 +905,17 @@ def train(args: argparse.Namespace) -> None:
         "dropout": float(args.dropout),
         "use_heterogeneity": bool(args.use_heterogeneity),
         "loss_type": args.loss_type,
+        "loss_type_effective_t0": _effective_loss_type(args, 0),
+        "loss_type_effective_t1": _effective_loss_type(args, 1),
         "hybrid_mse_weight": float(args.hybrid_mse_weight),
         "optimizer": args.optimizer,
         "weight_decay": float(args.weight_decay),
         "cosine_scheduler": bool(args.cosine_scheduler),
         "ema_decay": float(args.ema_decay),
         "grad_clip_norm": float(args.grad_clip_norm),
+        "val_selection_metric": str(args.val_selection_metric),
+        "val_selection_metric_effective_t0": _effective_val_selection_metric(args, 0),
+        "val_selection_metric_effective_t1": _effective_val_selection_metric(args, 1),
         "final_epochs_from_cv": bool(args.final_epochs_from_cv),
         "final_epochs_cap": int(args.final_epochs),
         "final_holdout_fraction": float(args.final_holdout_fraction),
@@ -856,7 +954,10 @@ def train(args: argparse.Namespace) -> None:
     metadata["input_dim"] = per_target_full_configs[0]["input_dim"]
     metadata["context_dim"] = per_target_full_configs[0]["context_dim"]
     _yt = frame_to_scenario_sets(
-        raw_train, is_train=True, mass_interaction_k=int(args.mass_interaction_k)
+        raw_train,
+        is_train=True,
+        mass_interaction_k=int(args.mass_interaction_k),
+        rich_scenario_context=bool(args.rich_scenario_context),
     ).targets
     if _yt is None:
         raise ValueError("Missing training targets for y-scaling export.")
@@ -944,12 +1045,18 @@ def build_arg_parser() -> argparse.ArgumentParser:
         default="deepsets",
         choices=[
             "deepsets",
+            "deepsets_sumpool",
             "attention",
             "transformer",
+            "transformer_meanmax",
             "transformer_attention",
             "transformer_attention_max",
         ],
-        help="Set encoder: deepsets | attention | transformer | transformer_attention | transformer_attention_max (cross + mean/max pool).",
+        help=(
+            "Set encoder: deepsets | deepsets_sumpool (+sum pool) | attention | transformer | "
+            "transformer_meanmax (encoder + mean/max pool, no cross-attn) | transformer_attention | "
+            "transformer_attention_max."
+        ),
     )
     parser.add_argument(
         "--transformer-layers",
@@ -1022,6 +1129,20 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="For --loss-type hybrid: weight on MSE term (rest is log-cosh).",
     )
     parser.add_argument(
+        "--loss-type-t0",
+        type=str,
+        default=None,
+        choices=["mse", "smoothl1", "logcosh", "hybrid"],
+        help="Override --loss-type for the Delta-KV head (target 0) only.",
+    )
+    parser.add_argument(
+        "--loss-type-t1",
+        type=str,
+        default=None,
+        choices=["mse", "smoothl1", "logcosh", "hybrid"],
+        help="Override --loss-type for the oxidation head (target 1), e.g. logcosh for heavy tails.",
+    )
+    parser.add_argument(
         "--component-top-k",
         type=int,
         default=0,
@@ -1049,7 +1170,42 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--mass-interaction-k",
         type=int,
         default=0,
-        help="Add top-K variance component features as mass_int::name = feat×(|mass|/sum|mass|) per scenario row. 0 disables.",
+        help="Add top-K variance component features as mass_int::name = feat x (|mass|/sum|mass|) per scenario row. 0 disables.",
+    )
+    parser.add_argument(
+        "--rich-scenario-context",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Add extra scenario-level context (log1p(n), mass min/max, HHI) from rows in that scenario only — "
+            "no cross-scenario leakage. Stored in metadata; old checkpoints require this off."
+        ),
+    )
+    parser.add_argument(
+        "--val-selection-metric",
+        type=str,
+        default="mse",
+        choices=["mse", "mae", "rmse", "combined"],
+        help=(
+            "Metric for early stopping / best checkpoint on validation folds (default mse). "
+            "Use mae or combined (0.5 MSE + 0.5 MAE on normalized targets) if leaderboard is MAE-heavy."
+        ),
+    )
+    parser.add_argument(
+        "--val-selection-metric-t0",
+        type=str,
+        default=None,
+        choices=["mse", "mae", "rmse", "combined"],
+        help="Override --val-selection-metric for target 0 (Delta KV) only; fold-val only, no leakage.",
+    )
+    parser.add_argument(
+        "--val-selection-metric-t1",
+        type=str,
+        default=None,
+        choices=["mse", "mae", "rmse", "combined"],
+        help=(
+            "Override for target 1 (oxidation). Typical: mae or rmse — less greedy on outliers than pure mse."
+        ),
     )
     return parser
 

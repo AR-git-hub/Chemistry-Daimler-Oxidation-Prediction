@@ -143,3 +143,77 @@ class DeepSetsRegressor(nn.Module):
         pooled = torch.cat(parts, dim=1)
         return self.rho(pooled)
 
+
+class DeepSetsWithSumPoolRegressor(nn.Module):
+    """Deep Sets with an extra **unnormalized sum-pool** over phi(x) (not / |set|).
+
+    Different inductive bias from mean/max alone: total mass of activations scales with
+    set size in a way mean pooling removes.
+    """
+
+    def __init__(
+        self,
+        input_dim: int,
+        context_dim: int,
+        hidden_dim: int = 128,
+        output_dim: int = 1,
+        dropout: float = 0.0,
+        use_heterogeneity: bool = False,
+        encoder_hidden_dim: int | None = None,
+        rho_hidden_dim: int | None = None,
+    ) -> None:
+        super().__init__()
+        self.use_heterogeneity = bool(use_heterogeneity)
+        dp = float(dropout)
+        enc_h = int(encoder_hidden_dim) if encoder_hidden_dim is not None else int(hidden_dim)
+        rho_h = int(rho_hidden_dim) if rho_hidden_dim is not None else int(hidden_dim)
+        self.phi = nn.Sequential(
+            nn.Linear(input_dim, enc_h),
+            nn.ReLU(),
+            nn.Dropout(dp),
+            nn.Linear(enc_h, enc_h),
+            nn.ReLU(),
+            nn.Dropout(dp),
+        )
+        self.context_encoder = nn.Sequential(
+            nn.Linear(context_dim, enc_h),
+            nn.ReLU(),
+            nn.Dropout(dp),
+            nn.Linear(enc_h, enc_h),
+            nn.ReLU(),
+            nn.Dropout(dp),
+        )
+        rho_in = enc_h * 4 + 1 + (1 if self.use_heterogeneity else 0)
+        self.rho = nn.Sequential(
+            nn.Linear(rho_in, rho_h),
+            nn.ReLU(),
+            nn.Dropout(dp),
+            nn.Linear(rho_h, output_dim),
+        )
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor, context: torch.Tensor) -> torch.Tensor:
+        h = self.phi(x)
+        mask3d = mask.unsqueeze(-1)
+        h_masked = h * mask3d
+
+        lengths = mask.sum(dim=1, keepdim=True).clamp_min(1.0)
+        pooled_mean = h_masked.sum(dim=1) / lengths
+
+        minus_inf = torch.finfo(h.dtype).min
+        h_for_max = h.masked_fill(mask3d == 0, minus_inf)
+        pooled_max = h_for_max.max(dim=1).values
+        pooled_max = torch.where(torch.isfinite(pooled_max), pooled_max, torch.zeros_like(pooled_max))
+
+        pooled_sum = h_masked.sum(dim=1)
+
+        size_feature = lengths / lengths.max().clamp_min(1.0)
+        context_emb = self.context_encoder(context)
+        parts = [pooled_mean, pooled_max, pooled_sum, context_emb, size_feature]
+        if self.use_heterogeneity:
+            ex2 = h_masked.pow(2).sum(dim=1) / lengths
+            pooled_var = (ex2 - pooled_mean.pow(2)).clamp_min(0.0)
+            hetero = torch.sqrt(pooled_var.mean(dim=1, keepdim=True) + 1e-8)
+            parts.append(hetero)
+        pooled = torch.cat(parts, dim=1)
+        return self.rho(pooled)
+

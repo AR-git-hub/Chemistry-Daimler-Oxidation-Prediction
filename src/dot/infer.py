@@ -1,4 +1,4 @@
-﻿"""Inference pipeline that generates predictions.csv."""
+"""Inference pipeline that generates predictions.csv."""
 
 from __future__ import annotations
 
@@ -139,11 +139,13 @@ def _predict_with_artifact(
                     "std": np.array(artifact_meta["ctx_std"], dtype=np.float32),
                 }
 
+            rich_ctx = bool(artifact_meta.get("rich_scenario_context", False))
             scenario_test = frame_to_scenario_sets(
                 test_df,
                 is_train=False,
                 feature_columns=feature_columns,
                 interaction_feature_columns=interaction_feature_columns,
+                rich_scenario_context=rich_ctx,
             )
             if scenario_test.feature_columns != feature_columns:
                 raise ValueError("Feature columns mismatch for inference artifact.")
@@ -180,11 +182,13 @@ def _predict_with_artifact(
         feature_columns = artifact_meta["feature_columns"]
         context_columns = artifact_meta["context_columns"]
         interaction_feature_columns = artifact_meta.get("interaction_feature_columns", [])
+        rich_ctx = bool(artifact_meta.get("rich_scenario_context", False))
         scenario_test = frame_to_scenario_sets(
             test_df,
             is_train=False,
             feature_columns=feature_columns,
             interaction_feature_columns=interaction_feature_columns,
+            rich_scenario_context=rich_ctx,
         )
         if scenario_test.feature_columns != feature_columns:
             raise ValueError("Feature columns mismatch for inference artifact.")
@@ -360,7 +364,12 @@ def infer(args: argparse.Namespace) -> None:
         }
     )
     pred_df.to_csv(args.output_path, index=False)
-    print(f"Saved predictions to {args.output_path}")
+    n_comp = int(len(test_df))
+    n_scn = int(test_df[SCENARIO_ID].nunique())
+    print(
+        f"Saved predictions to {args.output_path} "
+        f"({len(pred_df)} scenario rows; test table has {n_comp} component rows / {n_scn} scenarios)."
+    )
 
 
 def build_arg_parser() -> argparse.ArgumentParser:

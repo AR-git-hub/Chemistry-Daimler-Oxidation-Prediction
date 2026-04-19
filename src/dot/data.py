@@ -1,4 +1,4 @@
-﻿"""Data loading and scenario-to-set transformation utilities."""
+"""Data loading and scenario-to-set transformation utilities."""
 
 from __future__ import annotations
 
@@ -141,8 +141,14 @@ def _append_mass_interaction_columns(work: pd.DataFrame, feature_cols: list[str]
 def _build_interaction_context(
     group: pd.DataFrame,
     interaction_feature_cols: Sequence[str],
+    *,
+    rich_scenario_context: bool = False,
 ) -> tuple[np.ndarray, List[str]]:
-    """Build scenario-level context with robust interaction summaries."""
+    """Build scenario-level context with robust interaction summaries.
+
+    ``rich_scenario_context``: extra per-scenario scalars (log n, mass min/max,
+    concentration HHI, range, CV, log1p total |mass|) — rows of this scenario only (no leakage).
+    """
     mass_col = "Массовая доля, %"
     condition_candidates = [
         "Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
@@ -165,13 +171,36 @@ def _build_interaction_context(
     context_values: List[float] = []
     context_names: List[str] = []
 
-    context_values.append(float(len(group)))
+    n_rows = len(group)
+    context_values.append(float(n_rows))
     context_names.append("ctx_num_components")
+    if rich_scenario_context:
+        context_values.append(float(np.log1p(n_rows)))
+        context_names.append("ctx_log1p_num_components")
 
     if mass_col in group.columns:
         masses = group[mass_col].fillna(0.0).to_numpy(dtype=np.float32)
         context_values.extend([float(masses.sum()), float(masses.mean()), float(masses.std())])
         context_names.extend(["ctx_mass_sum", "ctx_mass_mean", "ctx_mass_std"])
+        if rich_scenario_context:
+            context_values.extend([float(np.max(masses)), float(np.min(masses))])
+            context_names.extend(["ctx_mass_max", "ctx_mass_min"])
+            m_abs = np.abs(masses.astype(np.float64))
+            s_abs = float(np.sum(m_abs))
+            if s_abs < 1e-12:
+                wh = np.ones_like(m_abs, dtype=np.float64) / max(len(m_abs), 1)
+            else:
+                wh = m_abs / s_abs
+            context_values.append(float(np.sum(wh**2)))
+            context_names.append("ctx_mass_concentration_hhi")
+            context_values.append(float(np.max(masses) - np.min(masses)))
+            context_names.append("ctx_mass_range")
+            m_mean = float(np.mean(masses))
+            m_std = float(np.std(masses))
+            context_values.append(float(m_std / (abs(m_mean) + 1e-6)))
+            context_names.append("ctx_mass_cv")
+            context_values.append(float(np.log1p(s_abs)))
+            context_names.append("ctx_log1p_abs_mass_sum")
 
     for col in condition_cols:
         val = float(group[col].iloc[0]) if col in group.columns else 0.0
@@ -196,6 +225,7 @@ def frame_to_scenario_sets(
     interaction_feature_columns: Sequence[str] | None = None,
     *,
     mass_interaction_k: int = 0,
+    rich_scenario_context: bool = False,
 ) -> ScenarioSetData:
     """Convert row-level component table into per-scenario sets."""
     work = _coerce_frame_types(df)
@@ -222,7 +252,9 @@ def frame_to_scenario_sets(
     grouped = work.groupby(SCENARIO_ID, sort=True)
     for scenario_id, group in grouped:
         x = group[feature_cols].fillna(0.0).astype(float).to_numpy(dtype=np.float32)
-        ctx, ctx_cols = _build_interaction_context(group, interaction_feature_cols)
+        ctx, ctx_cols = _build_interaction_context(
+            group, interaction_feature_cols, rich_scenario_context=rich_scenario_context
+        )
         if not context_columns:
             context_columns = ctx_cols
         scenario_ids.append(str(scenario_id))
