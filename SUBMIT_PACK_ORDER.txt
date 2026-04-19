@@ -1,0 +1,16 @@
+Порядок сабмитов (5 слотов; подставь свои LB после каждого):
+
+Якорь — не создавали заново:
+  A0: predictions_stacked_k5_v7_ridge_tuned_rmse_wave2.csv   (уже ~0.088865 LB)
+
+Новые бленды (консервативно, в основном wave2):
+  A1: predictions_submit_blend_97wave2_03sumpoolstack.csv
+  A2: predictions_submit_blend_94wave2_06sumpoolstack.csv
+  A3: predictions_submit_blend_91wave2_09sumpoolstack.csv
+  A4: predictions_submit_blend_90wave2_10poly2wave2.csv
+  A5: predictions_submit_blend_88wave2_12ridgea6.csv
+
+Реалистично: 0.083–0.084 за 5 сабмитов с такого уровня (~0.089) — редкость; цель пакета —
+не просесть и слегка выиграть за счёт sumpool-stack в малых долях + poly2/a6 варианты.
+
+НЕ слать одиночный sumpool TTA — уже дал ~0.103 LB.

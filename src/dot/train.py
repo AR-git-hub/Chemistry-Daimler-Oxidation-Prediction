@@ -1,0 +1,1215 @@
+﻿"""Training pipeline for DOT Deep Sets baseline."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import random
+import shutil
+from pathlib import Path
+from typing import Dict, List, Tuple
+
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+from sklearn.model_selection import GroupKFold, GroupShuffleSplit
+from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.utils.data import DataLoader
+
+from .config import ARTIFACTS_DIR, FEATURE_BLOCKLIST, SCENARIO_ID, TARGET_COLUMNS, TRAIN_PATH
+from .component_feature_selection import top_k_features_per_component_for_target
+from .feature_selection import select_component_features_for_target
+from .data import (
+    apply_context_scaler,
+    apply_feature_scaler,
+    build_context_scaler_stats,
+    build_feature_scaler_stats,
+    frame_to_scenario_sets,
+    normalize_targets,
+)
+from .model import ScenarioSetDataset, collate_train
+from .set_sequence_models import _nhead_for_d_model, build_set_regressor
+
+
+def _encoder_rho_from_args(args: argparse.Namespace) -> tuple[int | None, int | None]:
+    enc = int(getattr(args, "encoder_hidden_dim", 0) or 0)
+    rho = int(getattr(args, "rho_hidden_dim", 0) or 0)
+    return (enc if enc > 0 else None, rho if rho > 0 else None)
+
+
+def set_seed(seed: int) -> None:
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+
+def _build_loader(dataset: ScenarioSetDataset, batch_size: int, shuffle: bool) -> DataLoader:
+    return DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=0,
+        collate_fn=collate_train,
+    )
+
+
+def _log_cosh_mean(diff: torch.Tensor) -> torch.Tensor:
+    """Stable mean(log(cosh(diff))) for regression (smooth near 0, ~|x| for large |x|)."""
+    ax = diff.abs()
+    return (ax + torch.nn.functional.softplus(-2.0 * ax) - 0.6931471805599453).mean()
+
+
+class _HybridMseLogCosh(nn.Module):
+    """Normalized MSE (leaderboard-style) + log-cosh on residuals (robust tails, smooth gradients)."""
+
+    def __init__(self, mse_weight: float = 0.65) -> None:
+        super().__init__()
+        self.mse_w = float(mse_weight)
+        self.mse = nn.MSELoss()
+
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        w = self.mse_w
+        return w * self.mse(pred, target) + (1.0 - w) * _log_cosh_mean(pred - target)
+
+
+class _LogCoshLoss(nn.Module):
+    def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        return _log_cosh_mean(pred - target)
+
+
+def _build_criterion(loss_type: str, hybrid_mse_weight: float) -> nn.Module:
+    loss_type = loss_type.lower()
+    if loss_type == "mse":
+        return nn.MSELoss()
+    if loss_type == "smoothl1":
+        return nn.SmoothL1Loss(beta=1.0)
+    if loss_type == "logcosh":
+        return _LogCoshLoss()
+    if loss_type == "hybrid":
+        return _HybridMseLogCosh(mse_weight=hybrid_mse_weight)
+    raise ValueError(f"Unsupported loss_type: {loss_type}")
+
+
+def _build_optimizer(
+    model: nn.Module,
+    optimizer_name: str,
+    lr: float,
+    weight_decay: float,
+) -> torch.optim.Optimizer:
+    name = optimizer_name.lower()
+    if name == "adam":
+        return torch.optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
+    if name == "adamw":
+        return torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
+    raise ValueError(f"Unsupported optimizer: {optimizer_name}")
+
+
+class _EmaTracker:
+    """Exponential moving average of floating-point tensors in ``state_dict`` (parameters + buffers)."""
+
+    def __init__(self, decay: float) -> None:
+        self.decay = float(decay)
+        self.shadow: Dict[str, torch.Tensor] = {}
+
+    def update(self, model: nn.Module) -> None:
+        with torch.no_grad():
+            for k, v in model.state_dict().items():
+                if not getattr(v, "dtype", None) or not v.dtype.is_floating_point:
+                    continue
+                t = v.detach()
+                if k not in self.shadow:
+                    self.shadow[k] = t.clone()
+                else:
+                    self.shadow[k].mul_(self.decay).add_(t, alpha=1.0 - self.decay)
+
+    def blend_into_model(self, model: nn.Module, device: torch.device) -> Dict[str, torch.Tensor]:
+        """Return backup CPU state_dict to restore after validation."""
+        backup = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
+        sd = model.state_dict()
+        new_sd = {}
+        for k in sd:
+            new_sd[k] = self.shadow[k].to(device) if k in self.shadow else sd[k]
+        model.load_state_dict(new_sd)
+        return backup
+
+    @staticmethod
+    def restore(model: nn.Module, backup: Dict[str, torch.Tensor], device: torch.device) -> None:
+        model.load_state_dict({k: v.to(device) for k, v in backup.items()})
+
+
+def _val_score_for_selection(val_metrics: Dict[str, float], metric: str) -> float:
+    """Scalar for early stopping / best checkpoint (lower is better). All on normalized targets."""
+    m = str(metric).lower().strip()
+    if m == "mse":
+        return float(val_metrics["mse"])
+    if m == "mae":
+        return float(val_metrics["mae"])
+    if m == "rmse":
+        return float(np.sqrt(max(float(val_metrics["mse"]), 0.0)))
+    if m == "combined":
+        return 0.5 * float(val_metrics["mse"]) + 0.5 * float(val_metrics["mae"])
+    raise ValueError(f"Unsupported val_selection_metric: {metric!r}")
+
+
+_VAL_METRIC_CHOICES = frozenset({"mse", "mae", "rmse", "combined"})
+_LOSS_TYPE_CHOICES = frozenset({"mse", "smoothl1", "logcosh", "hybrid"})
+
+
+def _effective_loss_type(args: argparse.Namespace, target_idx: int) -> str:
+    """Per-target training loss; default ``--loss-type``."""
+    base = str(args.loss_type).lower().strip()
+    if int(target_idx) == 0:
+        o = getattr(args, "loss_type_t0", None)
+        if o is not None and str(o).strip():
+            return str(o).lower().strip()
+    elif int(target_idx) == 1:
+        o = getattr(args, "loss_type_t1", None)
+        if o is not None and str(o).strip():
+            return str(o).lower().strip()
+    return base
+
+
+def _effective_val_selection_metric(args: argparse.Namespace, target_idx: int) -> str:
+    """Per-target early-stopping metric on fold val (still no leakage). Default: --val-selection-metric."""
+    base = str(args.val_selection_metric).lower().strip()
+    if int(target_idx) == 0:
+        o = getattr(args, "val_selection_metric_t0", None)
+        if o is not None and str(o).strip():
+            return str(o).lower().strip()
+    elif int(target_idx) == 1:
+        o = getattr(args, "val_selection_metric_t1", None)
+        if o is not None and str(o).strip():
+            return str(o).lower().strip()
+    return base
+
+
+def _evaluate(model: nn.Module, loader: DataLoader, device: torch.device) -> Dict[str, float]:
+    model.eval()
+    losses = []
+    mae_losses = []
+    criterion = torch.nn.MSELoss()
+    mae_criterion = torch.nn.L1Loss()
+    with torch.no_grad():
+        for xb, mask, ctx, yb in loader:
+            xb = xb.to(device)
+            mask = mask.to(device)
+            ctx = ctx.to(device)
+            yb = yb.to(device)
+            pred = model(xb, mask, ctx)
+            loss = criterion(pred, yb)
+            mae = mae_criterion(pred, yb)
+            losses.append(loss.item())
+            mae_losses.append(mae.item())
+    mse = float(np.mean(losses)) if losses else float("nan")
+    mae = float(np.mean(mae_losses)) if mae_losses else float("nan")
+    return {"mse": mse, "mae": mae}
+
+
+def _train_fold(
+    train_dataset: ScenarioSetDataset,
+    val_dataset: ScenarioSetDataset,
+    input_dim: int,
+    context_dim: int,
+    output_dim: int,
+    target_column: str,
+    hidden_dim: int,
+    encoder_hidden_dim: int | None,
+    rho_hidden_dim: int | None,
+    dropout: float,
+    use_heterogeneity: bool,
+    epochs: int,
+    batch_size: int,
+    lr: float,
+    input_noise_std: float,
+    loss_type: str,
+    hybrid_mse_weight: float,
+    optimizer_name: str,
+    weight_decay: float,
+    use_cosine_scheduler: bool,
+    ema_decay: float,
+    grad_clip_norm: float,
+    architecture: str,
+    transformer_layers: int,
+    transformer_heads: int,
+    transformer_ffn_mult: int,
+    device: torch.device,
+    val_selection_metric: str,
+) -> Tuple[nn.Module, Dict[str, float]]:
+    """Train a single-output head (``output_dim`` is 1 for per-target models)."""
+    train_loader = _build_loader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = _build_loader(val_dataset, batch_size=batch_size, shuffle=False)
+
+    model = build_set_regressor(
+        architecture,
+        input_dim=input_dim,
+        context_dim=context_dim,
+        hidden_dim=hidden_dim,
+        output_dim=output_dim,
+        dropout=dropout,
+        use_heterogeneity=use_heterogeneity,
+        encoder_hidden_dim=encoder_hidden_dim,
+        rho_hidden_dim=rho_hidden_dim,
+        transformer_layers=transformer_layers,
+        transformer_heads=transformer_heads,
+        transformer_ffn_mult=transformer_ffn_mult,
+    ).to(device)
+    optimizer = _build_optimizer(model, optimizer_name, lr, weight_decay)
+    criterion = _build_criterion(loss_type, hybrid_mse_weight)
+    scheduler = CosineAnnealingLR(optimizer, T_max=max(epochs, 1)) if use_cosine_scheduler else None
+    ema: _EmaTracker | None = _EmaTracker(ema_decay) if ema_decay > 0.0 and ema_decay < 1.0 else None
+
+    best_state = None
+    best_val = float("inf")
+    patience = 20
+    stale = 0
+    best_epoch = 0
+    epochs_run = 0
+
+    for epoch_idx in range(epochs):
+        epochs_run = epoch_idx + 1
+        model.train()
+        for xb, mask, ctx, yb in train_loader:
+            xb = xb.to(device)
+            mask = mask.to(device)
+            ctx = ctx.to(device)
+            yb = yb.to(device)
+
+            optimizer.zero_grad()
+            if input_noise_std > 0:
+                xb = xb + torch.randn_like(xb) * input_noise_std
+                ctx = ctx + torch.randn_like(ctx) * input_noise_std
+            pred = model(xb, mask, ctx)
+            loss = criterion(pred, yb)
+            loss.backward()
+            if grad_clip_norm > 0:
+                torch.nn.utils.clip_grad_norm_(model.parameters(), grad_clip_norm)
+            optimizer.step()
+            if ema is not None:
+                ema.update(model)
+
+        if scheduler is not None:
+            scheduler.step()
+
+        if ema is not None:
+            backup = ema.blend_into_model(model, device)
+            val_metrics = _evaluate(model, val_loader, device)
+            _EmaTracker.restore(model, backup, device)
+        else:
+            val_metrics = _evaluate(model, val_loader, device)
+        val_loss = _val_score_for_selection(val_metrics, val_selection_metric)
+        if val_loss < best_val:
+            best_val = val_loss
+            best_epoch = epochs_run
+            if ema is not None:
+                best_state = {}
+                for k, v in model.state_dict().items():
+                    best_state[k] = (
+                        ema.shadow[k].detach().cpu().clone() if k in ema.shadow else v.detach().cpu().clone()
+                    )
+            else:
+                best_state = {k: v.detach().cpu() for k, v in model.state_dict().items()}
+            stale = 0
+        else:
+            stale += 1
+            if stale >= patience:
+                break
+
+    if best_state is not None:
+        model.load_state_dict({k: v.to(device) for k, v in best_state.items()})
+    final_metrics = _evaluate(model, val_loader, device)
+    train_at_best = _evaluate(model, train_loader, device)
+    metrics: Dict[str, float] = {
+        "val_mse_normalized": final_metrics["mse"],
+        "val_mae_normalized": final_metrics["mae"],
+        "train_mse_normalized": train_at_best["mse"],
+        "train_mae_normalized": train_at_best["mae"],
+        "best_epoch": float(best_epoch),
+        "epochs_run": float(epochs_run),
+        "target_column": target_column,
+    }
+    return model, metrics
+
+
+def _final_epochs_from_holdout_probe(
+    args: argparse.Namespace,
+    target_idx: int,
+    scaled_components: List[np.ndarray],
+    scaled_context: np.ndarray,
+    y_one: np.ndarray,
+    scenario_ids: List[str],
+    *,
+    input_dim: int,
+    context_dim: int,
+    target_column: str,
+    device: torch.device,
+) -> Tuple[int | None, Dict[str, float]]:
+    """Train on a scenario holdout split to estimate a reasonable full-data epoch budget (reduces blind over-training)."""
+    sid = np.array(scenario_ids)
+    n_sc = len(sid)
+    frac = float(args.final_holdout_fraction)
+    if frac <= 0.0 or n_sc < int(args.final_holdout_min_scenarios):
+        return None, {}
+    gss = GroupShuffleSplit(
+        n_splits=1,
+        test_size=frac,
+        random_state=int(args.seed) + 1000 + int(target_idx),
+    )
+    try:
+        tr_i, ho_i = next(gss.split(np.arange(n_sc, dtype=np.int64), groups=sid))
+    except ValueError:
+        return None, {}
+    tr_i = np.asarray(tr_i, dtype=np.int64)
+    ho_i = np.asarray(ho_i, dtype=np.int64)
+    if len(ho_i) < int(args.final_holdout_min_val_scenarios) or len(tr_i) < int(args.final_holdout_min_train_scenarios):
+        return None, {}
+    train_ds_h = ScenarioSetDataset(
+        [scaled_components[int(i)] for i in tr_i],
+        scaled_context[tr_i],
+        y_one[tr_i],
+    )
+    val_ds_h = ScenarioSetDataset(
+        [scaled_components[int(i)] for i in ho_i],
+        scaled_context[ho_i],
+        y_one[ho_i],
+    )
+    probe_epochs = min(int(args.epochs), int(args.final_probe_max_epochs))
+    enc_h, rho_h = _encoder_rho_from_args(args)
+    _, probe_m = _train_fold(
+        train_dataset=train_ds_h,
+        val_dataset=val_ds_h,
+        input_dim=input_dim,
+        context_dim=context_dim,
+        output_dim=1,
+        target_column=target_column,
+        hidden_dim=args.hidden_dim,
+        encoder_hidden_dim=enc_h,
+        rho_hidden_dim=rho_h,
+        dropout=args.dropout,
+        use_heterogeneity=args.use_heterogeneity,
+        epochs=probe_epochs,
+        batch_size=args.batch_size,
+        lr=args.learning_rate,
+        input_noise_std=args.input_noise_std,
+        loss_type=_effective_loss_type(args, int(target_idx)),
+        hybrid_mse_weight=args.hybrid_mse_weight,
+        optimizer_name=args.optimizer,
+        weight_decay=args.weight_decay,
+        use_cosine_scheduler=args.cosine_scheduler,
+        ema_decay=args.ema_decay,
+        grad_clip_norm=args.grad_clip_norm,
+        architecture=str(args.architecture),
+        transformer_layers=int(args.transformer_layers),
+        transformer_heads=int(args.transformer_heads),
+        transformer_ffn_mult=int(args.transformer_ffn_mult),
+        device=device,
+        val_selection_metric=_effective_val_selection_metric(args, int(target_idx)),
+    )
+    ho_best = int(probe_m["best_epoch"])
+    slack = max(
+        int(args.final_holdout_slack_min),
+        int(np.ceil(float(args.final_holdout_slack_frac) * max(ho_best, 1))),
+    )
+    n_ho = min(int(args.final_epochs), ho_best + slack)
+    n_ho = max(int(args.final_epochs_min), n_ho)
+    extra = {
+        "probe_best_epoch": float(ho_best),
+        "probe_epochs_run": probe_m["epochs_run"],
+        "probe_val_mse": probe_m["val_mse_normalized"],
+        "probe_train_mse": probe_m["train_mse_normalized"],
+    }
+    return n_ho, extra
+
+
+def _effective_final_epochs_for_target(
+    fold_metrics: List[Dict[str, float]],
+    target_idx: int,
+    cap_epochs: int,
+    *,
+    from_cv: bool,
+    min_epochs: int,
+    margin_frac: float,
+    margin_min: int,
+) -> int:
+    """Cap full-data training so it does not far exceed typical CV early-stop depth (reduces train memorization)."""
+    if not from_cv or not fold_metrics:
+        return cap_epochs
+    key = f"best_epoch_t{target_idx}"
+    if key not in fold_metrics[0]:
+        return cap_epochs
+    bests = [float(m[key]) for m in fold_metrics]
+    median_be = int(np.round(np.median(bests)))
+    slack = max(margin_min, int(np.ceil(margin_frac * max(median_be, 1))))
+    eff = min(cap_epochs, median_be + slack)
+    return max(min_epochs, eff)
+
+
+def _assert_group_split_no_leakage(groups: np.ndarray, train_idx: np.ndarray, val_idx: np.ndarray) -> None:
+    train_groups = set(groups[train_idx].tolist())
+    val_groups = set(groups[val_idx].tolist())
+    overlap = train_groups.intersection(val_groups)
+    if overlap:
+        raise ValueError(f"Group leakage detected for scenario_id values: {sorted(list(overlap))[:10]}")
+
+
+def _build_fold_datasets_for_target(
+    train_fold_df: pd.DataFrame,
+    val_fold_df: pd.DataFrame,
+    feature_columns: List[str],
+    *,
+    rich_scenario_context: bool,
+) -> tuple[ScenarioSetDataset, ScenarioSetDataset, Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, np.ndarray], Dict[str, object]]:
+    fold_train = frame_to_scenario_sets(
+        train_fold_df,
+        is_train=True,
+        feature_columns=feature_columns,
+        interaction_feature_columns=None,
+        mass_interaction_k=0,
+        rich_scenario_context=rich_scenario_context,
+    )
+    fold_val = frame_to_scenario_sets(
+        val_fold_df,
+        is_train=True,
+        feature_columns=feature_columns,
+        interaction_feature_columns=fold_train.interaction_feature_columns,
+        mass_interaction_k=0,
+        rich_scenario_context=rich_scenario_context,
+    )
+    if fold_train.targets is None or fold_val.targets is None:
+        raise ValueError("Fold targets are missing.")
+
+    x_stats = build_feature_scaler_stats(fold_train.components)
+    c_stats = build_context_scaler_stats(fold_train.context)
+    y_stats = normalize_targets(fold_train.targets)
+
+    train_x = apply_feature_scaler(fold_train.components, x_stats)
+    val_x = apply_feature_scaler(fold_val.components, x_stats)
+    train_c = apply_context_scaler(fold_train.context, c_stats)
+    val_c = apply_context_scaler(fold_val.context, c_stats)
+    train_y = y_stats["y_norm"]
+    val_y = ((fold_val.targets - y_stats["mean"]) / y_stats["std"]).astype(np.float32)
+
+    train_dataset = ScenarioSetDataset(train_x, train_c, train_y)
+    val_dataset = ScenarioSetDataset(val_x, val_c, val_y)
+    meta = {
+        "feature_columns": fold_train.feature_columns,
+        "context_columns": fold_train.context_columns,
+        "interaction_feature_columns": fold_train.interaction_feature_columns,
+    }
+    return train_dataset, val_dataset, x_stats, c_stats, y_stats, meta
+
+
+def train(args: argparse.Namespace) -> None:
+    if str(args.val_selection_metric).lower().strip() not in _VAL_METRIC_CHOICES:
+        raise ValueError(f"Unsupported --val-selection-metric: {args.val_selection_metric!r}")
+    for name, raw in (
+        ("--val-selection-metric-t0", getattr(args, "val_selection_metric_t0", None)),
+        ("--val-selection-metric-t1", getattr(args, "val_selection_metric_t1", None)),
+    ):
+        if raw is None or not str(raw).strip():
+            continue
+        if str(raw).lower().strip() not in _VAL_METRIC_CHOICES:
+            raise ValueError(f"Unsupported {name}: {raw!r}")
+    if str(args.loss_type).lower().strip() not in _LOSS_TYPE_CHOICES:
+        raise ValueError(f"Unsupported --loss-type: {args.loss_type!r}")
+    for name, raw in (
+        ("--loss-type-t0", getattr(args, "loss_type_t0", None)),
+        ("--loss-type-t1", getattr(args, "loss_type_t1", None)),
+    ):
+        if raw is None or not str(raw).strip():
+            continue
+        if str(raw).lower().strip() not in _LOSS_TYPE_CHOICES:
+            raise ValueError(f"Unsupported {name}: {raw!r}")
+    if bool(args.feature_selection) and int(args.component_top_k) > 0:
+        raise ValueError("Use either --feature-selection or --component-top-k, not both.")
+    if int(args.mass_interaction_k) > 0 and (bool(args.feature_selection) or int(args.component_top_k) > 0):
+        raise ValueError("Use --mass-interaction-k only without --feature-selection and --component-top-k.")
+    set_seed(args.seed)
+    out_dir = Path(args.artifacts_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    folds_dir = out_dir / "folds"
+    if folds_dir.exists():
+        shutil.rmtree(folds_dir)
+    folds_dir.mkdir(parents=True, exist_ok=True)
+
+    raw_train = pd.read_csv(args.train_path)
+    enc_h, rho_h = _encoder_rho_from_args(args)
+    arch_lc = str(args.architecture).lower().strip()
+    _non_transformer_archs = frozenset(
+        {"deepsets", "deep_sets", "deepset", "deepsets_sumpool", "deepsets_sum_pool", "deepset_sumpool"}
+    )
+    eff_nhead = (
+        _nhead_for_d_model(int(args.hidden_dim), int(args.transformer_heads))
+        if arch_lc not in _non_transformer_archs
+        else None
+    )
+    scenario_ids = np.array(sorted(raw_train[SCENARIO_ID].unique().tolist()))
+    gkf = GroupKFold(n_splits=args.n_splits)
+
+    fold_metrics = []
+    fold_splits = list(gkf.split(np.arange(len(scenario_ids)), scenario_ids, groups=scenario_ids))
+    for fold_idx, (tr_idx, val_idx) in enumerate(fold_splits, start=1):
+        _assert_group_split_no_leakage(scenario_ids, tr_idx, val_idx)
+        train_ids = set(scenario_ids[tr_idx].tolist())
+        val_ids = set(scenario_ids[val_idx].tolist())
+        train_fold_df = raw_train[raw_train[SCENARIO_ID].isin(train_ids)].copy()
+        val_fold_df = raw_train[raw_train[SCENARIO_ID].isin(val_ids)].copy()
+
+        fold_component_maps: list[Dict[str, List[str]]] | None = None
+        if args.feature_selection:
+            feat_cols_per_target = [
+                select_component_features_for_target(train_fold_df, TARGET_COLUMNS[ti]) for ti in range(len(TARGET_COLUMNS))
+            ]
+        elif int(args.component_top_k) > 0:
+            fold_component_maps = []
+            feat_cols_per_target = []
+            for ti, tcol in enumerate(TARGET_COLUMNS):
+                cols, cmap = top_k_features_per_component_for_target(
+                    train_fold_df,
+                    tcol,
+                    k=int(args.component_top_k),
+                    min_rows_per_component=int(args.component_min_rows_per_component),
+                )
+                if not cols:
+                    raise ValueError("component-top-k selection produced empty feature set.")
+                feat_cols_per_target.append(cols)
+                fold_component_maps.append(cmap)
+        else:
+            _ref = frame_to_scenario_sets(
+                train_fold_df,
+                is_train=True,
+                mass_interaction_k=int(args.mass_interaction_k),
+                rich_scenario_context=bool(args.rich_scenario_context),
+            )
+            feat_cols_per_target = [_ref.feature_columns, _ref.feature_columns]
+
+        per_target_metrics: list[Dict[str, float]] = []
+        per_target_fold_configs: list[Dict[str, object]] = []
+        fold_dir = folds_dir / f"fold_{fold_idx}"
+        fold_dir.mkdir(parents=True, exist_ok=True)
+
+        for ti, tcol in enumerate(TARGET_COLUMNS):
+            train_dataset, val_dataset, x_stats, c_stats, y_stats, fold_meta = _build_fold_datasets_for_target(
+                train_fold_df,
+                val_fold_df,
+                feat_cols_per_target[ti],
+                rich_scenario_context=bool(args.rich_scenario_context),
+            )
+            assert train_dataset.targets is not None and val_dataset.targets is not None
+            train_y_np = train_dataset.targets.numpy()
+            val_y_np = val_dataset.targets.numpy()
+            train_x_list = [c.cpu().numpy() for c in train_dataset.components]
+            val_x_list = [c.cpu().numpy() for c in val_dataset.components]
+            train_ctx = train_dataset.context.numpy()
+            val_ctx = val_dataset.context.numpy()
+
+            train_ds_t = ScenarioSetDataset(train_x_list, train_ctx, train_y_np[:, ti : ti + 1])
+            val_ds_t = ScenarioSetDataset(val_x_list, val_ctx, val_y_np[:, ti : ti + 1])
+            fold_model, fold_metric_one = _train_fold(
+                train_dataset=train_ds_t,
+                val_dataset=val_ds_t,
+                input_dim=len(fold_meta["feature_columns"]),
+                context_dim=len(fold_meta["context_columns"]),
+                output_dim=1,
+                target_column=tcol,
+                hidden_dim=args.hidden_dim,
+                encoder_hidden_dim=enc_h,
+                rho_hidden_dim=rho_h,
+                dropout=args.dropout,
+                use_heterogeneity=args.use_heterogeneity,
+                epochs=args.epochs,
+                batch_size=args.batch_size,
+                lr=args.learning_rate,
+                input_noise_std=args.input_noise_std,
+                loss_type=_effective_loss_type(args, ti),
+                hybrid_mse_weight=args.hybrid_mse_weight,
+                optimizer_name=args.optimizer,
+                weight_decay=args.weight_decay,
+                use_cosine_scheduler=args.cosine_scheduler,
+                ema_decay=args.ema_decay,
+                grad_clip_norm=args.grad_clip_norm,
+                architecture=str(args.architecture),
+                transformer_layers=int(args.transformer_layers),
+                transformer_heads=int(args.transformer_heads),
+                transformer_ffn_mult=int(args.transformer_ffn_mult),
+                device=torch.device(args.device),
+                val_selection_metric=_effective_val_selection_metric(args, ti),
+            )
+            safe_name = f"model_t{ti}.pt"
+            fold_model_path = fold_dir / safe_name
+            torch.save(fold_model.state_dict(), fold_model_path)
+            per_target_metrics.append(fold_metric_one)
+            per_target_fold_configs.append(
+                {
+                    "feature_columns": fold_meta["feature_columns"],
+                    "interaction_feature_columns": fold_meta["interaction_feature_columns"],
+                    "context_columns": fold_meta["context_columns"],
+                    "x_mean": x_stats["mean"].tolist(),
+                    "x_std": x_stats["std"].tolist(),
+                    "ctx_mean": c_stats["mean"].tolist(),
+                    "ctx_std": c_stats["std"].tolist(),
+                    "input_dim": len(fold_meta["feature_columns"]),
+                    "context_dim": len(fold_meta["context_columns"]),
+                }
+            )
+
+        fold_metric = {
+            "fold": fold_idx,
+            "val_mse_normalized": float(np.mean([m["val_mse_normalized"] for m in per_target_metrics])),
+            "val_mae_normalized": float(np.mean([m["val_mae_normalized"] for m in per_target_metrics])),
+            "train_mse_normalized": float(np.mean([m["train_mse_normalized"] for m in per_target_metrics])),
+            "train_mae_normalized": float(np.mean([m["train_mae_normalized"] for m in per_target_metrics])),
+            **{f"val_mse_normalized_t{ti}": m["val_mse_normalized"] for ti, m in enumerate(per_target_metrics)},
+            **{f"val_mae_normalized_t{ti}": m["val_mae_normalized"] for ti, m in enumerate(per_target_metrics)},
+            **{f"train_mse_normalized_t{ti}": m["train_mse_normalized"] for ti, m in enumerate(per_target_metrics)},
+            **{f"train_mae_normalized_t{ti}": m["train_mae_normalized"] for ti, m in enumerate(per_target_metrics)},
+            **{f"best_epoch_t{ti}": int(m["best_epoch"]) for ti, m in enumerate(per_target_metrics)},
+            **{f"epochs_run_t{ti}": int(m["epochs_run"]) for ti, m in enumerate(per_target_metrics)},
+        }
+        fold_metrics.append(fold_metric)
+
+        fold_metadata = {
+            "fold": fold_idx,
+            "train_seed": int(args.seed),
+            "rich_scenario_context": bool(args.rich_scenario_context),
+            "mass_interaction_k": int(args.mass_interaction_k),
+            "ema_decay": float(args.ema_decay),
+            "separate_target_models": True,
+            "feature_selection": bool(args.feature_selection),
+            "component_top_k": int(args.component_top_k),
+            "component_min_rows_per_component": int(args.component_min_rows_per_component),
+            "output_dim": len(TARGET_COLUMNS),
+            "model_output_dim": 1,
+            "hidden_dim": args.hidden_dim,
+            "architecture": str(args.architecture),
+            "transformer_layers": int(args.transformer_layers),
+            "transformer_heads": int(args.transformer_heads),
+            "transformer_heads_effective": eff_nhead,
+            "transformer_ffn_mult": int(args.transformer_ffn_mult),
+            "encoder_hidden_dim": enc_h,
+            "rho_hidden_dim": rho_h,
+            "dropout": float(args.dropout),
+            "use_heterogeneity": bool(args.use_heterogeneity),
+            "val_selection_metric": str(args.val_selection_metric),
+            "val_selection_metric_effective_t0": _effective_val_selection_metric(args, 0),
+            "val_selection_metric_effective_t1": _effective_val_selection_metric(args, 1),
+            "loss_type_effective_t0": _effective_loss_type(args, 0),
+            "loss_type_effective_t1": _effective_loss_type(args, 1),
+            "target_columns": TARGET_COLUMNS,
+            "y_mean": y_stats["mean"].tolist(),
+            "y_std": y_stats["std"].tolist(),
+        }
+        for ti, cfg in enumerate(per_target_fold_configs):
+            fold_metadata[f"feature_columns_t{ti}"] = cfg["feature_columns"]
+            fold_metadata[f"interaction_feature_columns_t{ti}"] = cfg["interaction_feature_columns"]
+            fold_metadata[f"context_columns_t{ti}"] = cfg["context_columns"]
+            fold_metadata[f"x_mean_t{ti}"] = cfg["x_mean"]
+            fold_metadata[f"x_std_t{ti}"] = cfg["x_std"]
+            fold_metadata[f"ctx_mean_t{ti}"] = cfg["ctx_mean"]
+            fold_metadata[f"ctx_std_t{ti}"] = cfg["ctx_std"]
+            fold_metadata[f"input_dim_t{ti}"] = cfg["input_dim"]
+            fold_metadata[f"context_dim_t{ti}"] = cfg["context_dim"]
+            fold_metadata[f"model_path_t{ti}"] = str((fold_dir / f"model_t{ti}.pt").resolve())
+        if fold_component_maps is not None:
+            for ti, cmap in enumerate(fold_component_maps):
+                fold_metadata[f"component_feature_map_t{ti}"] = {str(k): list(v) for k, v in sorted(cmap.items())}
+        # Shared-layout keys for tools that expect a single tensor width (first target).
+        fold_metadata["feature_columns"] = per_target_fold_configs[0]["feature_columns"]
+        fold_metadata["context_columns"] = per_target_fold_configs[0]["context_columns"]
+        fold_metadata["input_dim"] = per_target_fold_configs[0]["input_dim"]
+        fold_metadata["context_dim"] = per_target_fold_configs[0]["context_dim"]
+
+        with (fold_dir / "metadata.json").open("w", encoding="utf-8") as f:
+            json.dump(fold_metadata, f, ensure_ascii=False, indent=2)
+
+    # Re-train on full dataset for final inference artifact (no CV leakage concerns).
+    if args.feature_selection:
+        full_feat_cols = [
+            select_component_features_for_target(raw_train, TARGET_COLUMNS[ti]) for ti in range(len(TARGET_COLUMNS))
+        ]
+        full_component_maps: list[Dict[str, List[str]]] | None = None
+    elif int(args.component_top_k) > 0:
+        full_component_maps = []
+        full_feat_cols = []
+        for ti, tcol in enumerate(TARGET_COLUMNS):
+            cols, cmap = top_k_features_per_component_for_target(
+                raw_train,
+                tcol,
+                k=int(args.component_top_k),
+                min_rows_per_component=int(args.component_min_rows_per_component),
+            )
+            if not cols:
+                raise ValueError("component-top-k on full train produced empty feature set.")
+            full_feat_cols.append(cols)
+            full_component_maps.append(cmap)
+    else:
+        full_component_maps = None
+        _ref_full = frame_to_scenario_sets(
+            raw_train,
+            is_train=True,
+            mass_interaction_k=int(args.mass_interaction_k),
+            rich_scenario_context=bool(args.rich_scenario_context),
+        )
+        full_feat_cols = [_ref_full.feature_columns, _ref_full.feature_columns]
+
+    model_path_by_target: Dict[int, str] = {}
+    per_target_full_configs: Dict[int, Dict[str, object]] = {}
+    final_epochs_effective: Dict[int, int] = {}
+    final_holdout_meta: Dict[int, Dict[str, float]] = {}
+
+    for ti in range(len(TARGET_COLUMNS)):
+        grouped_train_t = frame_to_scenario_sets(
+            raw_train,
+            is_train=True,
+            feature_columns=full_feat_cols[ti],
+            interaction_feature_columns=None,
+            mass_interaction_k=0,
+            rich_scenario_context=bool(args.rich_scenario_context),
+        )
+        if grouped_train_t.targets is None:
+            raise ValueError("Training targets are missing.")
+        scaler_stats = build_feature_scaler_stats(grouped_train_t.components)
+        context_scaler = build_context_scaler_stats(grouped_train_t.context)
+        y_stats = normalize_targets(grouped_train_t.targets)
+        scaled_components = apply_feature_scaler(grouped_train_t.components, scaler_stats)
+        scaled_context = apply_context_scaler(grouped_train_t.context, context_scaler)
+        y_norm = y_stats["y_norm"]
+        y_one = y_norm[:, ti : ti + 1]
+        dataset_t = ScenarioSetDataset(scaled_components, scaled_context, y_one)
+        full_loader = DataLoader(
+            dataset_t,
+            batch_size=args.batch_size,
+            shuffle=True,
+            num_workers=0,
+            collate_fn=collate_train,
+        )
+        final_model = build_set_regressor(
+            str(args.architecture),
+            input_dim=len(grouped_train_t.feature_columns),
+            context_dim=len(grouped_train_t.context_columns),
+            hidden_dim=args.hidden_dim,
+            output_dim=1,
+            dropout=args.dropout,
+            use_heterogeneity=args.use_heterogeneity,
+            encoder_hidden_dim=enc_h,
+            rho_hidden_dim=rho_h,
+            transformer_layers=int(args.transformer_layers),
+            transformer_heads=int(args.transformer_heads),
+            transformer_ffn_mult=int(args.transformer_ffn_mult),
+        ).to(torch.device(args.device))
+        final_optimizer = _build_optimizer(final_model, args.optimizer, args.learning_rate, args.weight_decay)
+        criterion = _build_criterion(_effective_loss_type(args, ti), args.hybrid_mse_weight)
+        ema_f: _EmaTracker | None = (
+            _EmaTracker(args.ema_decay) if 0.0 < args.ema_decay < 1.0 else None
+        )
+        n_cap = _effective_final_epochs_for_target(
+            fold_metrics,
+            ti,
+            args.final_epochs,
+            from_cv=bool(args.final_epochs_from_cv),
+            min_epochs=int(args.final_epochs_min),
+            margin_frac=float(args.final_epochs_cv_margin_frac),
+            margin_min=int(args.final_epochs_cv_margin_min),
+        )
+        n_ho, ho_extra = _final_epochs_from_holdout_probe(
+            args,
+            ti,
+            scaled_components,
+            scaled_context,
+            y_one,
+            grouped_train_t.scenario_ids,
+            input_dim=len(grouped_train_t.feature_columns),
+            context_dim=len(grouped_train_t.context_columns),
+            target_column=TARGET_COLUMNS[ti],
+            device=torch.device(args.device),
+        )
+        if n_ho is not None:
+            n_merged = int(min(n_cap, n_ho))
+            frac_floor = float(args.final_fulldata_min_frac_of_cv_cap)
+            if frac_floor > 0.0:
+                n_floor = max(int(args.final_epochs_min), int(np.ceil(frac_floor * n_cap)))
+                n_merged = int(min(n_cap, max(n_merged, n_floor)))
+            n_final = max(int(args.final_epochs_min), n_merged)
+            final_holdout_meta[ti] = ho_extra
+        else:
+            n_final = int(n_cap)
+        final_epochs_effective[ti] = n_final
+        final_model.train()
+        for _ in range(n_final):
+            for xb, mask, ctx, yb in full_loader:
+                xb = xb.to(args.device)
+                mask = mask.to(args.device)
+                ctx = ctx.to(args.device)
+                yb = yb.to(args.device)
+                final_optimizer.zero_grad()
+                if args.input_noise_std > 0:
+                    xb = xb + torch.randn_like(xb) * args.input_noise_std
+                    ctx = ctx + torch.randn_like(ctx) * args.input_noise_std
+                pred = final_model(xb, mask, ctx)
+                loss = criterion(pred, yb)
+                loss.backward()
+                if args.grad_clip_norm > 0:
+                    torch.nn.utils.clip_grad_norm_(final_model.parameters(), args.grad_clip_norm)
+                final_optimizer.step()
+                if ema_f is not None:
+                    ema_f.update(final_model)
+
+        mp = out_dir / f"deepsets_model_t{ti}.pt"
+        if ema_f is not None:
+            save_sd = {}
+            for k, v in final_model.state_dict().items():
+                save_sd[k] = (
+                    ema_f.shadow[k].detach().cpu().clone()
+                    if k in ema_f.shadow
+                    else v.detach().cpu().clone()
+                )
+            torch.save(save_sd, mp)
+        else:
+            torch.save(final_model.state_dict(), mp)
+        model_path_by_target[ti] = str(mp.resolve())
+        per_target_full_configs[ti] = {
+            "feature_columns": grouped_train_t.feature_columns,
+            "interaction_feature_columns": grouped_train_t.interaction_feature_columns,
+            "context_columns": grouped_train_t.context_columns,
+            "x_mean": scaler_stats["mean"].tolist(),
+            "x_std": scaler_stats["std"].tolist(),
+            "ctx_mean": context_scaler["mean"].tolist(),
+            "ctx_std": context_scaler["std"].tolist(),
+            "input_dim": len(grouped_train_t.feature_columns),
+            "context_dim": len(grouped_train_t.context_columns),
+        }
+
+    metadata = {
+        "target_columns": TARGET_COLUMNS,
+        "train_path": str(Path(args.train_path).resolve()),
+        "train_seed": int(args.seed),
+        "rich_scenario_context": bool(args.rich_scenario_context),
+        "mass_interaction_k": int(args.mass_interaction_k),
+        "feature_blocklist": sorted(FEATURE_BLOCKLIST),
+        "separate_target_models": True,
+        "feature_selection": bool(args.feature_selection),
+        "component_top_k": int(args.component_top_k),
+        "component_min_rows_per_component": int(args.component_min_rows_per_component),
+        "model_output_dim": 1,
+        "hidden_dim": args.hidden_dim,
+        "architecture": str(args.architecture),
+        "transformer_layers": int(args.transformer_layers),
+        "transformer_heads": int(args.transformer_heads),
+        "transformer_heads_effective": eff_nhead,
+        "transformer_ffn_mult": int(args.transformer_ffn_mult),
+        "encoder_hidden_dim": enc_h,
+        "rho_hidden_dim": rho_h,
+        "dropout": float(args.dropout),
+        "use_heterogeneity": bool(args.use_heterogeneity),
+        "loss_type": args.loss_type,
+        "loss_type_effective_t0": _effective_loss_type(args, 0),
+        "loss_type_effective_t1": _effective_loss_type(args, 1),
+        "hybrid_mse_weight": float(args.hybrid_mse_weight),
+        "optimizer": args.optimizer,
+        "weight_decay": float(args.weight_decay),
+        "cosine_scheduler": bool(args.cosine_scheduler),
+        "ema_decay": float(args.ema_decay),
+        "grad_clip_norm": float(args.grad_clip_norm),
+        "val_selection_metric": str(args.val_selection_metric),
+        "val_selection_metric_effective_t0": _effective_val_selection_metric(args, 0),
+        "val_selection_metric_effective_t1": _effective_val_selection_metric(args, 1),
+        "final_epochs_from_cv": bool(args.final_epochs_from_cv),
+        "final_epochs_cap": int(args.final_epochs),
+        "final_holdout_fraction": float(args.final_holdout_fraction),
+        "final_fulldata_min_frac_of_cv_cap": float(args.final_fulldata_min_frac_of_cv_cap),
+        **{f"final_epochs_effective_t{ti}": int(final_epochs_effective[ti]) for ti in range(len(TARGET_COLUMNS))},
+        **{
+            f"final_holdout_{k}_t{ti}": float(v)
+            for ti, d in final_holdout_meta.items()
+            for k, v in d.items()
+        },
+        "validation_metrics": fold_metrics,
+        "cv_mean_mse_normalized": float(np.mean([m["val_mse_normalized"] for m in fold_metrics])),
+        "cv_mean_mae_normalized": float(np.mean([m["val_mae_normalized"] for m in fold_metrics])),
+        "input_noise_std": float(args.input_noise_std),
+        "fold_ensemble_dir": str(folds_dir),
+        "fold_count": len(fold_metrics),
+        **{f"model_path_t{ti}": model_path_by_target[ti] for ti in range(len(TARGET_COLUMNS))},
+    }
+    for ti in range(len(TARGET_COLUMNS)):
+        cfg = per_target_full_configs[ti]
+        metadata[f"feature_columns_t{ti}"] = cfg["feature_columns"]
+        metadata[f"interaction_feature_columns_t{ti}"] = cfg["interaction_feature_columns"]
+        metadata[f"context_columns_t{ti}"] = cfg["context_columns"]
+        metadata[f"x_mean_t{ti}"] = cfg["x_mean"]
+        metadata[f"x_std_t{ti}"] = cfg["x_std"]
+        metadata[f"ctx_mean_t{ti}"] = cfg["ctx_mean"]
+        metadata[f"ctx_std_t{ti}"] = cfg["ctx_std"]
+        metadata[f"input_dim_t{ti}"] = cfg["input_dim"]
+        metadata[f"context_dim_t{ti}"] = cfg["context_dim"]
+    if full_component_maps is not None:
+        for ti, cmap in enumerate(full_component_maps):
+            metadata[f"component_feature_map_t{ti}"] = {str(k): list(v) for k, v in sorted(cmap.items())}
+    metadata["output_dim"] = len(TARGET_COLUMNS)
+    metadata["feature_columns"] = per_target_full_configs[0]["feature_columns"]
+    metadata["context_columns"] = per_target_full_configs[0]["context_columns"]
+    metadata["input_dim"] = per_target_full_configs[0]["input_dim"]
+    metadata["context_dim"] = per_target_full_configs[0]["context_dim"]
+    _yt = frame_to_scenario_sets(
+        raw_train,
+        is_train=True,
+        mass_interaction_k=int(args.mass_interaction_k),
+        rich_scenario_context=bool(args.rich_scenario_context),
+    ).targets
+    if _yt is None:
+        raise ValueError("Missing training targets for y-scaling export.")
+    _yn = normalize_targets(_yt)
+    metadata["y_mean"] = _yn["mean"].tolist()
+    metadata["y_std"] = _yn["std"].tolist()
+    with (out_dir / "metadata.json").open("w", encoding="utf-8") as f:
+        json.dump(metadata, f, ensure_ascii=False, indent=2)
+
+    print(f"Training complete. Artifacts written to: {out_dir}")
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description="Train Deep Sets baseline for DOT task.")
+    parser.add_argument("--train-path", type=Path, default=TRAIN_PATH)
+    parser.add_argument("--artifacts-dir", type=Path, default=ARTIFACTS_DIR)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--epochs", type=int, default=200)
+    parser.add_argument(
+        "--final-epochs",
+        type=int,
+        default=140,
+        help="Upper bound on full-data retrain epochs; by default capped from CV best-epoch median (see --final-epochs-from-cv).",
+    )
+    parser.add_argument(
+        "--final-epochs-from-cv",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="After CV, limit full-data training epochs using median best_epoch per target + margin (reduces memorization on full train).",
+    )
+    parser.add_argument(
+        "--final-epochs-min",
+        type=int,
+        default=32,
+        help="Floor for effective full-data epochs when capping from CV.",
+    )
+    parser.add_argument(
+        "--final-epochs-cv-margin-frac",
+        type=float,
+        default=0.22,
+        help="Extra epochs beyond median CV best_epoch: max(margin_min, ceil(frac * median_best)).",
+    )
+    parser.add_argument(
+        "--final-epochs-cv-margin-min",
+        type=int,
+        default=12,
+        help="Minimum absolute slack epochs added to median CV best_epoch.",
+    )
+    parser.add_argument(
+        "--final-holdout-fraction",
+        type=float,
+        default=0.12,
+        help="Scenario holdout probe; 0 disables. Budget merges with CV cap, then floored by --final-fulldata-min-frac-of-cv-cap (see help there).",
+    )
+    parser.add_argument("--final-holdout-min-scenarios", type=int, default=24, help="Skip holdout probe if fewer scenarios.")
+    parser.add_argument("--final-holdout-min-val-scenarios", type=int, default=2, help="Minimum scenarios in holdout val split.")
+    parser.add_argument("--final-holdout-min-train-scenarios", type=int, default=8, help="Minimum scenarios in holdout train split.")
+    parser.add_argument(
+        "--final-holdout-slack-frac",
+        type=float,
+        default=0.12,
+        help="Extra full-data epochs after holdout best_epoch: max(slack_min, ceil(frac * best)).",
+    )
+    parser.add_argument("--final-holdout-slack-min", type=int, default=8, help="Minimum slack epochs after holdout best_epoch.")
+    parser.add_argument(
+        "--final-probe-max-epochs",
+        type=int,
+        default=200,
+        help="Max epochs for holdout probe; should match --epochs so probe_best_epoch is not cut early.",
+    )
+    parser.add_argument(
+        "--final-fulldata-min-frac-of-cv-cap",
+        type=float,
+        default=0.88,
+        help="After min(CV cap, holdout budget), full-data epochs are at least this fraction of the CV cap (recovers LB vs too-short final fit while still below blind cap). Set 0 to use raw min(cap, holdout) only.",
+    )
+    parser.add_argument("--batch-size", type=int, default=32)
+    parser.add_argument("--learning-rate", type=float, default=1e-3)
+    parser.add_argument("--input-noise-std", type=float, default=0.01)
+    parser.add_argument("--n-splits", type=int, default=5)
+    parser.add_argument("--device", type=str, default="cpu")
+    parser.add_argument(
+        "--architecture",
+        type=str,
+        default="deepsets",
+        choices=[
+            "deepsets",
+            "deepsets_sumpool",
+            "attention",
+            "transformer",
+            "transformer_meanmax",
+            "transformer_attention",
+            "transformer_attention_max",
+        ],
+        help=(
+            "Set encoder: deepsets | deepsets_sumpool (+sum pool) | attention | transformer | "
+            "transformer_meanmax (encoder + mean/max pool, no cross-attn) | transformer_attention | "
+            "transformer_attention_max."
+        ),
+    )
+    parser.add_argument(
+        "--transformer-layers",
+        type=int,
+        default=2,
+        help="TransformerEncoder depth when architecture is transformer or transformer_attention.",
+    )
+    parser.add_argument(
+        "--transformer-heads",
+        type=int,
+        default=4,
+        help="Requested multi-head attention heads; adjusted to divide d_model (= --hidden-dim for these architectures).",
+    )
+    parser.add_argument(
+        "--transformer-ffn-mult",
+        type=int,
+        default=2,
+        help="FFN hidden dim multiplier: dim_feedforward = mult * hidden_dim (clamped at least hidden_dim).",
+    )
+    parser.add_argument(
+        "--hidden-dim",
+        type=int,
+        default=128,
+        help="Default width when encoder/rho widths are not set separately.",
+    )
+    parser.add_argument(
+        "--encoder-hidden-dim",
+        type=int,
+        default=0,
+        help="phi + context MLP width; 0 = use --hidden-dim (smaller reduces set encoder capacity).",
+    )
+    parser.add_argument(
+        "--rho-hidden-dim",
+        type=int,
+        default=0,
+        help="rho head hidden width; 0 = use --hidden-dim (smaller head often reduces val overfit).",
+    )
+    parser.add_argument(
+        "--dropout",
+        type=float,
+        default=0.0,
+        help="Dropout in phi/context_encoder/rho (off at inference). Try 0.05-0.1 if train error << val error on folds.",
+    )
+    parser.add_argument(
+        "--grad-clip-norm",
+        type=float,
+        default=0.0,
+        help="Max gradient norm (0 disables). Enable e.g. 1.0 if you see unstable loss spikes.",
+    )
+    parser.add_argument(
+        "--loss-type",
+        type=str,
+        default="hybrid",
+        choices=["mse", "smoothl1", "logcosh", "hybrid"],
+        help="Default hybrid: ~hybrid_mse_weight MSE + (1-w) log-cosh (robust tails).",
+    )
+    parser.add_argument("--optimizer", type=str, default="adam", choices=["adam", "adamw"])
+    parser.add_argument(
+        "--weight-decay",
+        type=float,
+        default=2e-5,
+        help="L2 penalty (slightly higher default pairs with EMA / holdout budgeting).",
+    )
+    parser.add_argument("--cosine-scheduler", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument("--use-heterogeneity", action=argparse.BooleanOptionalAction, default=False)
+    parser.add_argument(
+        "--hybrid-mse-weight",
+        type=float,
+        default=0.92,
+        help="For --loss-type hybrid: weight on MSE term (rest is log-cosh).",
+    )
+    parser.add_argument(
+        "--loss-type-t0",
+        type=str,
+        default=None,
+        choices=["mse", "smoothl1", "logcosh", "hybrid"],
+        help="Override --loss-type for the Delta-KV head (target 0) only.",
+    )
+    parser.add_argument(
+        "--loss-type-t1",
+        type=str,
+        default=None,
+        choices=["mse", "smoothl1", "logcosh", "hybrid"],
+        help="Override --loss-type for the oxidation head (target 1), e.g. logcosh for heavy tails.",
+    )
+    parser.add_argument(
+        "--component-top-k",
+        type=int,
+        default=0,
+        help="If >0: per ``Компонент`` keep top-K numeric features by |Spearman| vs target (fit on fold train / full train). 0 disables. Mutually exclusive with --feature-selection.",
+    )
+    parser.add_argument(
+        "--component-min-rows-per-component",
+        type=int,
+        default=12,
+        help="If a ``Компонент`` has fewer rows in the fold, use global top-K Spearman fallback for that type.",
+    )
+    parser.add_argument(
+        "--feature-selection",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Optional: per-target Spearman screening (train fold only). Default off — full component columns for both heads.",
+    )
+    parser.add_argument(
+        "--ema-decay",
+        type=float,
+        default=0.998,
+        help="EMA decay in (0,1): smooth weights for val checkpoints & final export. 0 disables.",
+    )
+    parser.add_argument(
+        "--mass-interaction-k",
+        type=int,
+        default=0,
+        help="Add top-K variance component features as mass_int::name = feat x (|mass|/sum|mass|) per scenario row. 0 disables.",
+    )
+    parser.add_argument(
+        "--rich-scenario-context",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help=(
+            "Add extra scenario-level context (log1p(n), mass min/max, HHI) from rows in that scenario only — "
+            "no cross-scenario leakage. Stored in metadata; old checkpoints require this off."
+        ),
+    )
+    parser.add_argument(
+        "--val-selection-metric",
+        type=str,
+        default="mse",
+        choices=["mse", "mae", "rmse", "combined"],
+        help=(
+            "Metric for early stopping / best checkpoint on validation folds (default mse). "
+            "Use mae or combined (0.5 MSE + 0.5 MAE on normalized targets) if leaderboard is MAE-heavy."
+        ),
+    )
+    parser.add_argument(
+        "--val-selection-metric-t0",
+        type=str,
+        default=None,
+        choices=["mse", "mae", "rmse", "combined"],
+        help="Override --val-selection-metric for target 0 (Delta KV) only; fold-val only, no leakage.",
+    )
+    parser.add_argument(
+        "--val-selection-metric-t1",
+        type=str,
+        default=None,
+        choices=["mse", "mae", "rmse", "combined"],
+        help=(
+            "Override for target 1 (oxidation). Typical: mae or rmse — less greedy on outliers than pure mse."
+        ),
+    )
+    return parser
+
+
+if __name__ == "__main__":
+    train(build_arg_parser().parse_args())
+

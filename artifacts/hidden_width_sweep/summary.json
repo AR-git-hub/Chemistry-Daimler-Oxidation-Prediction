@@ -1,0 +1,67 @@
+{
+  "runs": [
+    {
+      "name": "h96",
+      "hidden_dim": 96,
+      "encoder_hidden_dim": null,
+      "rho_hidden_dim": null,
+      "cv_mse": 0.24007260353064339,
+      "cv_mae": 0.2630457799881697,
+      "mean_train_minus_val_mse": -0.05852207103504044
+    },
+    {
+      "name": "h128_rho72",
+      "hidden_dim": 128,
+      "encoder_hidden_dim": null,
+      "rho_hidden_dim": 72,
+      "cv_mse": 0.24088829216489102,
+      "cv_mae": 0.2540213618427515,
+      "mean_train_minus_val_mse": -0.09934050515701529
+    },
+    {
+      "name": "h88",
+      "hidden_dim": 88,
+      "encoder_hidden_dim": null,
+      "rho_hidden_dim": null,
+      "cv_mse": 0.2509961665042056,
+      "cv_mae": 0.27851422429084777,
+      "mean_train_minus_val_mse": -0.09339267948570977
+    },
+    {
+      "name": "h112",
+      "hidden_dim": 112,
+      "encoder_hidden_dim": null,
+      "rho_hidden_dim": null,
+      "cv_mse": 0.2559958720245049,
+      "cv_mae": 0.28611122369766234,
+      "mean_train_minus_val_mse": -0.07801944308361271
+    },
+    {
+      "name": "h128_enc88_rho72",
+      "hidden_dim": 128,
+      "encoder_hidden_dim": 88,
+      "rho_hidden_dim": 72,
+      "cv_mse": 0.25840299322735516,
+      "cv_mae": 0.28151529990136626,
+      "mean_train_minus_val_mse": -0.09904535936191677
+    },
+    {
+      "name": "h64",
+      "hidden_dim": 64,
+      "encoder_hidden_dim": null,
+      "rho_hidden_dim": null,
+      "cv_mse": 0.26145037717651576,
+      "cv_mae": 0.2896975100040436,
+      "mean_train_minus_val_mse": 0.005744235473684961
+    }
+  ],
+  "best_mse": {
+    "name": "h96",
+    "hidden_dim": 96,
+    "encoder_hidden_dim": null,
+    "rho_hidden_dim": null,
+    "cv_mse": 0.24007260353064339,
+    "cv_mae": 0.2630457799881697,
+    "mean_train_minus_val_mse": -0.05852207103504044
+  }
+}

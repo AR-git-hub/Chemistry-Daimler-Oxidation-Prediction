@@ -1,0 +1,23 @@
+{
+  "baseline_mse": 0.001767112873494625,
+  "top_context_factors": [
+    {
+      "feature": "ctx_condition::Температура испытания | ASTM D445 Daimler Oxidation Test (DOT), °C",
+      "baseline_mse": 0.001767112873494625,
+      "permuted_mse": 0.18770451843738556,
+      "delta_mse": 0.18593740556389093
+    },
+    {
+      "feature": "ctx_condition::Количество биотоплива | - Daimler Oxidation Test (DOT), % масс",
+      "baseline_mse": 0.001767112873494625,
+      "permuted_mse": 0.0673951506614685,
+      "delta_mse": 0.06562803778797388
+    },
+    {
+      "feature": "ctx_condition::Время испытания | - Daimler Oxidation Test (DOT), ч",
+      "baseline_mse": 0.001767112873494625,
+      "permuted_mse": 0.06595616601407528,
+      "delta_mse": 0.06418905314058065
+    }
+  ]
+}
